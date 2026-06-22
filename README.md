@@ -15,13 +15,15 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 ## Platform support
 
-|                    | Android | iOS | macOS | Windows | Linux |
-| :----------------- | :-----: | :-: | :---: | :-----: | :---: |
-| volumeButtonEvents |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| getVolume          |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
-| setVolume          |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
+|                          | Android | iOS | macOS | Windows | Linux |
+| :----------------------- | :-----: | :-: | :---: | :-----: | :---: |
+| volumeButtonPressEvent   |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| volumeButtonReleaseEvent |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| hideVolumeUi             |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| getVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
+| setVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
 
-Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button events are available on the current platform (`false` on Linux and Web).
+Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Linux and Web).
 
 ## Installation
 
