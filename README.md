@@ -77,16 +77,6 @@ await listener.setVolume(0.5);
 4. Removing the last callback stops native listening and releases native resources.
 5. On iOS, if volume is exactly `0.0` or `1.0` when listening starts, it is nudged slightly away from the bounds so subsequent button presses can be detected reliably.
 
-## Platform notes
-
-### iOS
-
-No extra setup is required. The plugin works with both CocoaPods and Swift Package Manager.
-
-### Linux
-
-Volume button listening is not available. Use `getVolume()` and `setVolume()` for system volume control only. Guard listener registration with `VolumeButtonListener.supportsVolumeButtonListener`.
-
 ## Example
 
 See the [example](example/) app for a runnable demo of listeners, volume read/write, and configuration options.
