@@ -1,0 +1,1 @@
+enum VolumeButtonDirection { up, down }

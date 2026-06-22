@@ -1,0 +1,22 @@
+name: volume_button_listener_example
+description: "Demonstrates how to use the volume_button_listener plugin."
+version: 0.0.1+1
+publish_to: "none"
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  volume_button_listener:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

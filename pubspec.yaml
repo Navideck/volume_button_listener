@@ -1,0 +1,37 @@
+name: volume_button_listener
+description: "Listen to hardware volume button events and control system volume"
+version: 0.0.1
+homepage: https://github.com/Navideck/volume_button_listener.git
+repository: https://github.com/Navideck/volume_button_listener
+issue_tracker: https://github.com/Navideck/volume_button_listener/issues
+
+environment:
+  sdk: ^3.11.0
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_volume_controller: ^1.3.3
+  async_queue: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  pigeon: ^26.1.7
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.navideck.volume_button_listener
+        pluginClass: VolumeButtonListenerPlugin
+      ios:
+        pluginClass: VolumeButtonListenerPlugin
+      macos:
+        pluginClass: VolumeButtonListenerPlugin
+      linux:
+        pluginClass: VolumeButtonListenerPlugin
+      windows:
+        pluginClass: VolumeButtonListenerPluginCApi

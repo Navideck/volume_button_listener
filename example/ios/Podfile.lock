@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - flutter_volume_controller (0.0.1):
+    - Flutter
+  - volume_button_listener (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - flutter_volume_controller (from `.symlinks/plugins/flutter_volume_controller/ios`)
+  - volume_button_listener (from `.symlinks/plugins/volume_button_listener/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  flutter_volume_controller:
+    :path: ".symlinks/plugins/flutter_volume_controller/ios"
+  volume_button_listener:
+    :path: ".symlinks/plugins/volume_button_listener/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_volume_controller: e4d5832f08008180f76e30faf671ffd5a425e529
+  volume_button_listener: ad265f965b6c9b66cf20901504c8981576b77175
+
+PODFILE CHECKSUM: 251cb053df7158f337c0712f2ab29f4e0fa474ce
+
+COCOAPODS: 1.16.2

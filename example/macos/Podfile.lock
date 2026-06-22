@@ -1,0 +1,28 @@
+PODS:
+  - flutter_volume_controller (0.0.1):
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+  - volume_button_listener (0.0.1):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - flutter_volume_controller (from `Flutter/ephemeral/.symlinks/plugins/flutter_volume_controller/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - volume_button_listener (from `Flutter/ephemeral/.symlinks/plugins/volume_button_listener/macos`)
+
+EXTERNAL SOURCES:
+  flutter_volume_controller:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_volume_controller/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  volume_button_listener:
+    :path: Flutter/ephemeral/.symlinks/plugins/volume_button_listener/macos
+
+SPEC CHECKSUMS:
+  flutter_volume_controller: 25d09126b0d695560f11c80b1311d5063fed882f
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  volume_button_listener: 7a557633dd53d065ada670eb75db16a2497e6b5a
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2
