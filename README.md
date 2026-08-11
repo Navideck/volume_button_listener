@@ -17,13 +17,17 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 |                          | Android | iOS | macOS | Windows | Linux |
 | :----------------------- | :-----: | :-: | :---: | :-----: | :---: |
-| volumeButtonPressEvent   |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| volumeButtonReleaseEvent |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| hideVolumeUi             |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| addButtonPressedListener |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| addButtonReleasedListener|   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| showVolumeUI             |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
 | getVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
 | setVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
 
 Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Linux and Web).
+
+### macOS App Store review
+
+On macOS, button listening uses a Core Graphics event tap and requires Input Monitoring/Accessibility access. Apple may reject Mac App Store apps that use this access for non-accessibility features under App Review Guideline 2.4.5. Mac App Store apps should keep volume-button listening disabled by default and let users explicitly enable it, or omit the feature on macOS. Reading and setting system volume does not start the event tap.
 
 ## Installation
 

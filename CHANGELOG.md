@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Update readme APIs
+- Add macOS App Store review notes to README.
+
 ## 0.1.0
 
 * Initial release.
