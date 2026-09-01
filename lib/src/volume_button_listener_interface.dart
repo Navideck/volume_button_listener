@@ -1,11 +1,28 @@
+import 'dart:async';
+
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
 
 mixin VolumeButtonListenerInterface {
   final VolumeButtonNotifier buttonPressedNotifier = VolumeButtonNotifier();
   final VolumeButtonNotifier buttonReleasedNotifier = VolumeButtonNotifier();
+  final VolumeButtonNotifier buttonLongPressedNotifier = VolumeButtonNotifier();
+  final VolumeButtonNotifier buttonLongPressReleasedNotifier =
+      VolumeButtonNotifier();
+
+  Duration longPressDuration = const Duration(milliseconds: 500);
+
   bool _suppressRepeatedPressEvents = true;
   (bool isVolumeUp, bool isPressed)? _previousEvent;
+
+  Timer? _upTimer;
+  Timer? _downTimer;
+  bool _isUpLongPressActive = false;
+  bool _isDownLongPressActive = false;
+
+  bool get hasLongPressListeners =>
+      buttonLongPressedNotifier.hasListeners ||
+      buttonLongPressReleasedNotifier.hasListeners;
 
   Future<double> getVolume();
 
@@ -26,14 +43,74 @@ mixin VolumeButtonListenerInterface {
     }
   }
 
+  void cancelLongPressTimers() {
+    _upTimer?.cancel();
+    _upTimer = null;
+    _downTimer?.cancel();
+    _downTimer = null;
+    _isUpLongPressActive = false;
+    _isDownLongPressActive = false;
+  }
+
   void notifyVolumeButtonPressed(bool isVolumeUp) {
     if (_shouldSuppressEvent(isVolumeUp, isPressed: true)) return;
-    buttonPressedNotifier.notify(_directionFromBool(isVolumeUp));
+    final direction = _directionFromBool(isVolumeUp);
+
+    if (!hasLongPressListeners) {
+      buttonPressedNotifier.notify(direction);
+      return;
+    }
+
+    if (isVolumeUp) {
+      _upTimer?.cancel();
+      _isUpLongPressActive = false;
+      _upTimer = Timer(longPressDuration, () {
+        _isUpLongPressActive = true;
+        _upTimer = null;
+        buttonLongPressedNotifier.notify(direction);
+      });
+    } else {
+      _downTimer?.cancel();
+      _isDownLongPressActive = false;
+      _downTimer = Timer(longPressDuration, () {
+        _isDownLongPressActive = true;
+        _downTimer = null;
+        buttonLongPressedNotifier.notify(direction);
+      });
+    }
   }
 
   void notifyVolumeButtonReleased(bool isVolumeUp) {
     if (_shouldSuppressEvent(isVolumeUp, isPressed: false)) return;
-    buttonReleasedNotifier.notify(_directionFromBool(isVolumeUp));
+    final direction = _directionFromBool(isVolumeUp);
+
+    final timer = isVolumeUp ? _upTimer : _downTimer;
+    final isLongPressActive =
+        isVolumeUp ? _isUpLongPressActive : _isDownLongPressActive;
+
+    if (timer != null && timer.isActive) {
+      timer.cancel();
+      if (isVolumeUp) {
+        _upTimer = null;
+        _isUpLongPressActive = false;
+      } else {
+        _downTimer = null;
+        _isDownLongPressActive = false;
+      }
+      buttonPressedNotifier.notify(direction);
+      buttonReleasedNotifier.notify(direction);
+    } else if (isLongPressActive) {
+      if (isVolumeUp) {
+        _isUpLongPressActive = false;
+        _upTimer = null;
+      } else {
+        _isDownLongPressActive = false;
+        _downTimer = null;
+      }
+      buttonLongPressReleasedNotifier.notify(direction);
+    } else {
+      buttonReleasedNotifier.notify(direction);
+    }
   }
 
   bool _shouldSuppressEvent(bool isVolumeUp, {required bool isPressed}) {
