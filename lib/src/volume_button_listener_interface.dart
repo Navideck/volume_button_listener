@@ -61,7 +61,6 @@ mixin VolumeButtonListenerInterface {
   }
 
   void notifyVolumeButtonPressed(bool isVolumeUp) {
-    debugPrint('VBL raw ${isVolumeUp ? 'up' : 'down'} press ${DateTime.now().millisecondsSinceEpoch}');
     final shouldSuppress = _shouldSuppressEvent(isVolumeUp, isPressed: true);
     final direction = _directionFromBool(isVolumeUp);
 
@@ -98,7 +97,6 @@ mixin VolumeButtonListenerInterface {
   }
 
   void notifyVolumeButtonReleased(bool isVolumeUp) {
-    debugPrint('VBL raw ${isVolumeUp ? 'up' : 'down'} release ${DateTime.now().millisecondsSinceEpoch}');
     if (_shouldSuppressEvent(isVolumeUp, isPressed: false)) return;
     final direction = _directionFromBool(isVolumeUp);
     final state = isVolumeUp ? _upState : _downState;
@@ -124,7 +122,6 @@ mixin VolumeButtonListenerInterface {
   ) {
     if (state.isLongPressActive) return;
     state.isLongPressActive = true;
-    debugPrint('VBL classified ${direction == VolumeButtonDirection.up ? 'up' : 'down'} long press ${DateTime.now().millisecondsSinceEpoch}');
     buttonLongPressedNotifier.notify(direction);
   }
 
