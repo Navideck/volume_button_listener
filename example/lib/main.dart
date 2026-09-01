@@ -86,7 +86,7 @@ class _MyAppState extends State<MyApp> {
     VolumeButtonListener.instance.longPressDuration = Duration(
       milliseconds: _longPressMs,
     );
-    unawaited(_refreshListeningState());
+    unawaited(_addListeners());
   }
 
   @override

@@ -49,9 +49,9 @@ public final class VolumeButtonListener {
     private var isPaused = false
     private var notificationObserver: NSObjectProtocol?
     private var didBecomeActiveObserver: NSObjectProtocol?
-    private let debounceInterval: TimeInterval = 0.25
+    private let debounceInterval: TimeInterval = 0.05
     private var lastPressTime: Date = .distantPast
-    private let releaseInactivityInterval: TimeInterval = 0.4
+    static let releaseInactivityInterval: TimeInterval = 0.75
     private let programmaticChangeIgnoreInterval: TimeInterval = 0.3
     private var releaseWorkItem: DispatchWorkItem?
     private var ignoreVolumeChangesUntil: Date = .distantPast
@@ -192,25 +192,34 @@ public final class VolumeButtonListener {
 
     private func handleSystemVolumeDidChange(_ notification: Notification) {
         guard shouldProcessVolumeChange(notification) else { return }
-        let currentVolume = AVAudioSession.sharedInstance().outputVolume
+        let currentVolume = (notification.userInfo?["Volume"] as? Float)
+            ?? (notification.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? Float)
+            ?? AVAudioSession.sharedInstance().outputVolume
         guard let button = volumeDirection(current: currentVolume, previous: previousVolume) else { return }
+
         recordPress(button: button)
         releaseWorkItem?.cancel()
         let buttonForRelease = button
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self.isListening else { return }
-            self.volumeButtonReleased?(buttonForRelease)
-            self.setSystemVolume(self.previousVolume)
+            self.releaseWorkItem = nil
+            self.volumeButtonReleasedHandler?(buttonForRelease)
+            if !self.showsVolumeUi && self.volumeSlider != nil {
+                self.setSystemVolume(self.previousVolume)
+            } else {
+                self.previousVolume = currentVolume
+            }
         }
         releaseWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + releaseInactivityInterval, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.releaseInactivityInterval, execute: workItem)
     }
 
     private func shouldProcessVolumeChange(_ notification: Notification) -> Bool {
         guard isListening, !isPaused else { return false }
         if Date() < ignoreVolumeChangesUntil { return false }
-        guard let reason = notification.userInfo?[volumeChangeReasonKey] as? String,
-              reason == explicitVolumeChangeReason else { return false }
+        let reason = (notification.userInfo?[volumeChangeReasonKey] as? String)
+            ?? (notification.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String)
+        guard reason == explicitVolumeChangeReason else { return false }
         return true
     }
 

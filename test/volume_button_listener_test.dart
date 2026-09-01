@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
@@ -46,6 +47,7 @@ void main() {
 
     tearDown(() {
       listener.cancelLongPressTimers();
+      debugDefaultTargetPlatformOverride = null;
     });
 
     test('Fires immediate buttonPressed when no long-press listener is registered', () {
@@ -147,6 +149,72 @@ void main() {
       // Wait another 250ms -> DOWN reaches > 300ms total -> DOWN long press
       await Future.delayed(const Duration(milliseconds: 250));
       expect(longPressedEvents, [VolumeButtonDirection.down]);
+    });
+
+    test(
+      'Does not treat two iOS press notifications as a long press and detects single press on release',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        listener.setSuppressRepeatedPressEvents(true);
+        listener.longPressDuration = const Duration(milliseconds: 200);
+        final pressedEvents = <VolumeButtonDirection>[];
+        final releasedEvents = <VolumeButtonDirection>[];
+        final longPressedEvents = <VolumeButtonDirection>[];
+        listener.buttonPressedNotifier.addListener(pressedEvents.add);
+        listener.buttonReleasedNotifier.addListener(releasedEvents.add);
+        listener.buttonLongPressedNotifier.addListener(longPressedEvents.add);
+
+        listener.notifyVolumeButtonPressed(true);
+        await Future.delayed(const Duration(milliseconds: 100));
+        listener.notifyVolumeButtonPressed(true);
+        await Future.delayed(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, [VolumeButtonDirection.up]);
+        expect(releasedEvents, [VolumeButtonDirection.up]);
+      },
+    );
+
+    test('Detects single press on iOS when long-press listener is registered', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      listener.setSuppressRepeatedPressEvents(true);
+      listener.longPressDuration = const Duration(milliseconds: 200);
+      final pressedEvents = <VolumeButtonDirection>[];
+      final releasedEvents = <VolumeButtonDirection>[];
+      final longPressedEvents = <VolumeButtonDirection>[];
+
+      listener.buttonPressedNotifier.addListener(pressedEvents.add);
+      listener.buttonReleasedNotifier.addListener(releasedEvents.add);
+      listener.buttonLongPressedNotifier.addListener(longPressedEvents.add);
+
+      listener.notifyVolumeButtonPressed(true);
+      await Future.delayed(const Duration(milliseconds: 250));
+      expect(longPressedEvents, isEmpty);
+      expect(pressedEvents, isEmpty);
+
+      listener.notifyVolumeButtonReleased(true);
+
+      expect(longPressedEvents, isEmpty);
+      expect(pressedEvents, [VolumeButtonDirection.up]);
+      expect(releasedEvents, [VolumeButtonDirection.up]);
+    });
+
+    test('Treats sustained iOS press notifications as a long press', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      listener.setSuppressRepeatedPressEvents(true);
+      listener.longPressDuration = const Duration(milliseconds: 200);
+      final longPressedEvents = <VolumeButtonDirection>[];
+      listener.buttonLongPressedNotifier.addListener(longPressedEvents.add);
+
+      listener.notifyVolumeButtonPressed(true);
+      await Future.delayed(const Duration(milliseconds: 50));
+      listener.notifyVolumeButtonPressed(true);
+      await Future.delayed(const Duration(milliseconds: 50));
+      listener.notifyVolumeButtonPressed(true);
+      await Future.delayed(const Duration(milliseconds: 150));
+
+      expect(longPressedEvents, [VolumeButtonDirection.up]);
     });
   });
 }

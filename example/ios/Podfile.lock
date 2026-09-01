@@ -21,7 +21,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_volume_controller: d9e7a54cb39415100a7cd558240faa1b8e8da6d4
-  volume_button_listener: f67bcdc5bd526c4f910159bad88a1456e79cdea9
+  volume_button_listener: 37b051f9de685e24f10beaaf4ae48173facb99b4
 
 PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
 

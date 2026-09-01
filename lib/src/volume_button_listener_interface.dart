@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
 
@@ -17,6 +18,8 @@ mixin VolumeButtonListenerInterface {
 
   Timer? _upTimer;
   Timer? _downTimer;
+  int _upPressCount = 0;
+  int _downPressCount = 0;
   bool _isUpLongPressActive = false;
   bool _isDownLongPressActive = false;
 
@@ -48,16 +51,42 @@ mixin VolumeButtonListenerInterface {
     _upTimer = null;
     _downTimer?.cancel();
     _downTimer = null;
+    _upPressCount = 0;
+    _downPressCount = 0;
     _isUpLongPressActive = false;
     _isDownLongPressActive = false;
   }
 
   void notifyVolumeButtonPressed(bool isVolumeUp) {
-    if (_shouldSuppressEvent(isVolumeUp, isPressed: true)) return;
+    debugPrint('VBL raw ${isVolumeUp ? 'up' : 'down'} press ${DateTime.now().millisecondsSinceEpoch}');
+    final shouldSuppress = _shouldSuppressEvent(isVolumeUp, isPressed: true);
     final direction = _directionFromBool(isVolumeUp);
 
     if (!hasLongPressListeners) {
+      if (shouldSuppress) return;
       buttonPressedNotifier.notify(direction);
+      return;
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      if (isVolumeUp) {
+        _upPressCount++;
+        if (_upPressCount > 1) {
+          if (_upPressCount >= 3 && _upTimer == null) {
+            _activateLongPress(isVolumeUp: true, direction: direction);
+          }
+          return;
+        }
+      } else {
+        _downPressCount++;
+        if (_downPressCount > 1) {
+          if (_downPressCount >= 3 && _downTimer == null) {
+            _activateLongPress(isVolumeUp: false, direction: direction);
+          }
+          return;
+        }
+      }
+    } else if (shouldSuppress) {
       return;
     }
 
@@ -65,28 +94,43 @@ mixin VolumeButtonListenerInterface {
       _upTimer?.cancel();
       _isUpLongPressActive = false;
       _upTimer = Timer(longPressDuration, () {
-        _isUpLongPressActive = true;
+        if (_upPressCount < 3 && defaultTargetPlatform == TargetPlatform.iOS) {
+          _upTimer = null;
+          return;
+        }
         _upTimer = null;
-        buttonLongPressedNotifier.notify(direction);
+        _activateLongPress(isVolumeUp: true, direction: direction);
       });
     } else {
       _downTimer?.cancel();
       _isDownLongPressActive = false;
       _downTimer = Timer(longPressDuration, () {
-        _isDownLongPressActive = true;
+        if (_downPressCount < 3 &&
+            defaultTargetPlatform == TargetPlatform.iOS) {
+          _downTimer = null;
+          return;
+        }
         _downTimer = null;
-        buttonLongPressedNotifier.notify(direction);
+        _activateLongPress(isVolumeUp: false, direction: direction);
       });
     }
   }
 
   void notifyVolumeButtonReleased(bool isVolumeUp) {
+    debugPrint('VBL raw ${isVolumeUp ? 'up' : 'down'} release ${DateTime.now().millisecondsSinceEpoch}');
     if (_shouldSuppressEvent(isVolumeUp, isPressed: false)) return;
     final direction = _directionFromBool(isVolumeUp);
 
+    if (isVolumeUp) {
+      _upPressCount = 0;
+    } else {
+      _downPressCount = 0;
+    }
+
     final timer = isVolumeUp ? _upTimer : _downTimer;
-    final isLongPressActive =
-        isVolumeUp ? _isUpLongPressActive : _isDownLongPressActive;
+    final isLongPressActive = isVolumeUp
+        ? _isUpLongPressActive
+        : _isDownLongPressActive;
 
     if (timer != null && timer.isActive) {
       timer.cancel();
@@ -109,8 +153,26 @@ mixin VolumeButtonListenerInterface {
       }
       buttonLongPressReleasedNotifier.notify(direction);
     } else {
+      if (hasLongPressListeners) {
+        buttonPressedNotifier.notify(direction);
+      }
       buttonReleasedNotifier.notify(direction);
     }
+  }
+
+  void _activateLongPress({
+    required bool isVolumeUp,
+    required VolumeButtonDirection direction,
+  }) {
+    if (isVolumeUp) {
+      if (_isUpLongPressActive) return;
+      _isUpLongPressActive = true;
+    } else {
+      if (_isDownLongPressActive) return;
+      _isDownLongPressActive = true;
+    }
+    debugPrint('VBL classified ${isVolumeUp ? 'up' : 'down'} long press ${DateTime.now().millisecondsSinceEpoch}');
+    buttonLongPressedNotifier.notify(direction);
   }
 
   bool _shouldSuppressEvent(bool isVolumeUp, {required bool isPressed}) {
