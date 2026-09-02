@@ -1,8 +1,6 @@
 import Testing
 @testable import VolumeButtonKit
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-    // Swift Testing Documentation
-    // https://developer.apple.com/documentation/testing
+@Test func releaseWindowBridgesInitialButtonRepeatDelay() {
+    #expect(VolumeButtonListener.releaseInactivityInterval >= 0.7)
 }

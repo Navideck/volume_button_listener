@@ -22,6 +22,48 @@ class _OtherLogEntry {
   _OtherLogEntry(this.message, this.at);
 }
 
+enum _EventType {
+  pressed,
+  released,
+  longPressed,
+  longPressReleased,
+}
+
+class _LogEntry {
+  final _EventType type;
+  final VolumeButtonDirection direction;
+  final DateTime at;
+
+  _LogEntry(this.type, this.direction, this.at);
+
+  factory _LogEntry.buttonPressed(VolumeButtonDirection direction) =>
+      _LogEntry(_EventType.pressed, direction, DateTime.now());
+
+  factory _LogEntry.buttonReleased(VolumeButtonDirection direction) =>
+      _LogEntry(_EventType.released, direction, DateTime.now());
+
+  factory _LogEntry.buttonLongPressed(VolumeButtonDirection direction) =>
+      _LogEntry(_EventType.longPressed, direction, DateTime.now());
+
+  factory _LogEntry.buttonLongPressReleased(VolumeButtonDirection direction) =>
+      _LogEntry(_EventType.longPressReleased, direction, DateTime.now());
+
+  String get label {
+    final typeStr = switch (type) {
+      _EventType.pressed => 'pressed',
+      _EventType.released => 'released',
+      _EventType.longPressed => 'LONG PRESSED',
+      _EventType.longPressReleased => 'long press released',
+    };
+    return '$_labelPrefix . $typeStr';
+  }
+
+  String get _labelPrefix => switch (direction) {
+    VolumeButtonDirection.up => 'Volume up',
+    VolumeButtonDirection.down => 'Volume down',
+  };
+}
+
 class _MyAppState extends State<MyApp> {
   static const int _maxLogEntries = 80;
   final List<_LogEntry> _volumeLog = [];
@@ -31,10 +73,20 @@ class _MyAppState extends State<MyApp> {
   double? _currentVolume;
   bool _isFetchingVolume = false;
 
+  bool _listenPressed = true;
+  bool _listenReleased = true;
+  bool _listenLongPressed = true;
+  bool _listenLongPressReleased = true;
+
+  int _longPressMs = 500;
+
   @override
   void initState() {
     super.initState();
-    unawaited(_refreshListeningState());
+    VolumeButtonListener.instance.longPressDuration = Duration(
+      milliseconds: _longPressMs,
+    );
+    unawaited(_addListeners());
   }
 
   @override
@@ -44,12 +96,26 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _addListeners() async {
-    await VolumeButtonListener.instance.addButtonPressedListener(
-      _buttonPressedCallback,
-    );
-    await VolumeButtonListener.instance.addButtonReleasedListener(
-      _buttonReleasedCallback,
-    );
+    if (_listenPressed) {
+      await VolumeButtonListener.instance.addButtonPressedListener(
+        _buttonPressedCallback,
+      );
+    }
+    if (_listenReleased) {
+      await VolumeButtonListener.instance.addButtonReleasedListener(
+        _buttonReleasedCallback,
+      );
+    }
+    if (_listenLongPressed) {
+      await VolumeButtonListener.instance.addButtonLongPressedListener(
+        _buttonLongPressedCallback,
+      );
+    }
+    if (_listenLongPressReleased) {
+      await VolumeButtonListener.instance.addButtonLongPressReleasedListener(
+        _buttonLongPressReleasedCallback,
+      );
+    }
     await _refreshListeningState();
   }
 
@@ -59,6 +125,12 @@ class _MyAppState extends State<MyApp> {
     );
     await VolumeButtonListener.instance.removeButtonReleasedListener(
       _buttonReleasedCallback,
+    );
+    await VolumeButtonListener.instance.removeButtonLongPressedListener(
+      _buttonLongPressedCallback,
+    );
+    await VolumeButtonListener.instance.removeButtonLongPressReleasedListener(
+      _buttonLongPressReleasedCallback,
     );
     await _refreshListeningState();
   }
@@ -74,11 +146,30 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _lastVolumeEvent = entry;
       _volumeLog.insert(0, entry);
+      if (_volumeLog.length > _maxLogEntries) _volumeLog.removeLast();
     });
   }
 
   void _buttonReleasedCallback(VolumeButtonDirection direction) {
     final entry = _LogEntry.buttonReleased(direction);
+    setState(() {
+      _lastVolumeEvent = entry;
+      _volumeLog.insert(0, entry);
+      if (_volumeLog.length > _maxLogEntries) _volumeLog.removeLast();
+    });
+  }
+
+  void _buttonLongPressedCallback(VolumeButtonDirection direction) {
+    final entry = _LogEntry.buttonLongPressed(direction);
+    setState(() {
+      _lastVolumeEvent = entry;
+      _volumeLog.insert(0, entry);
+      if (_volumeLog.length > _maxLogEntries) _volumeLog.removeLast();
+    });
+  }
+
+  void _buttonLongPressReleasedCallback(VolumeButtonDirection direction) {
+    final entry = _LogEntry.buttonLongPressReleased(direction);
     setState(() {
       _lastVolumeEvent = entry;
       _volumeLog.insert(0, entry);
@@ -261,11 +352,90 @@ class _MyAppState extends State<MyApp> {
                 ],
               ),
             ),
-            // Show/Hide Volume UI
+            // Listener toggles
             const SizedBox(height: 8),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Listeners (restart to apply):',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 0,
+                    children: [
+                      FilterChip(
+                        label: const Text('Pressed'),
+                        selected: _listenPressed,
+                        onSelected: (v) => setState(() => _listenPressed = v),
+                      ),
+                      FilterChip(
+                        label: const Text('Released'),
+                        selected: _listenReleased,
+                        onSelected: (v) => setState(() => _listenReleased = v),
+                      ),
+                      FilterChip(
+                        label: const Text('Long Pressed'),
+                        selected: _listenLongPressed,
+                        onSelected: (v) =>
+                            setState(() => _listenLongPressed = v),
+                      ),
+                      FilterChip(
+                        label: const Text('Long Press Released'),
+                        selected: _listenLongPressReleased,
+                        onSelected: (v) =>
+                            setState(() => _listenLongPressReleased = v),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        'Long Press Duration: ${_longPressMs}ms',
+                        style: theme.textTheme.labelMedium,
+                      ),
+                      const Spacer(),
+                      for (final ms in [300, 500, 800, 1200]) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: ChoiceChip(
+                            label: Text('${ms}ms'),
+                            selected: _longPressMs == ms,
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => _longPressMs = ms);
+                                VolumeButtonListener.instance
+                                    .longPressDuration = Duration(
+                                  milliseconds: ms,
+                                );
+                                addOtherLog('Long press duration: ${ms}ms');
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Show/Hide Volume UI
+            const SizedBox(height: 4),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -287,10 +457,10 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -318,7 +488,7 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -373,17 +543,29 @@ class _VolumeLogTile extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isUp = entry.direction == VolumeButtonDirection.up;
-    final isPressed = entry.isPressed;
-    final color = isPressed
-        ? (isUp ? colorScheme.primary : colorScheme.tertiary)
-        : colorScheme.outline;
-    final icon = isUp ? Icons.add_circle : Icons.remove_circle;
+
+    final (color, isBold) = switch (entry.type) {
+      _EventType.pressed => (
+        isUp ? colorScheme.primary : colorScheme.tertiary,
+        true,
+      ),
+      _EventType.released => (colorScheme.outline, false),
+      _EventType.longPressed => (Colors.amber.shade800, true),
+      _EventType.longPressReleased => (Colors.amber.shade700, false),
+    };
+
+    final icon = switch (entry.type) {
+      _EventType.longPressed ||
+      _EventType.longPressReleased => Icons.touch_app_rounded,
+      _ => (isUp ? Icons.add_circle : Icons.remove_circle),
+    };
+
     final time = _formatTime(entry.at);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Material(
-        color: color.withValues(alpha: isPressed ? 0.18 : 0.12),
+        color: color.withValues(alpha: isBold ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -400,7 +582,7 @@ class _VolumeLogTile extends StatelessWidget {
                     Text(
                       entry.label,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                        fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
                         color: colorScheme.onSurface,
                       ),
                     ),
@@ -486,25 +668,4 @@ String _formatTime(DateTime dt) {
   if (d == today) return time;
   if (d == today.subtract(const Duration(days: 1))) return 'Yesterday $time';
   return '${dt.month}/${dt.day} $time';
-}
-
-class _LogEntry {
-  final bool isPressed;
-  final VolumeButtonDirection direction;
-  final DateTime at;
-
-  _LogEntry(this.isPressed, this.direction, this.at);
-
-  factory _LogEntry.buttonPressed(VolumeButtonDirection direction) =>
-      _LogEntry(true, direction, DateTime.now());
-
-  factory _LogEntry.buttonReleased(VolumeButtonDirection direction) =>
-      _LogEntry(false, direction, DateTime.now());
-
-  String get label => '$_labelPrefix . ${isPressed ? 'pressed' : 'released'}';
-
-  String get _labelPrefix => switch (direction) {
-    VolumeButtonDirection.up => 'Volume up',
-    VolumeButtonDirection.down => 'Volume down',
-  };
 }

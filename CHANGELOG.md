@@ -1,3 +1,6 @@
+## 0.3.0
+* Add long press support
+
 ## 0.2.0
 * Bump flutter_volume_controller to 2.0
 

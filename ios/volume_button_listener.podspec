@@ -17,12 +17,6 @@ A new Flutter plugin project.
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
   s.prepare_command = 'sh ./prepare-volume-button-kit.sh'
-  s.script_phase = {
-    :name => 'Fetch VolumeButtonKit',
-    :execution_position => :before_compile,
-    :shell_path => '/bin/sh',
-    :script => 'sh "${PODS_TARGET_SRCROOT}/prepare-volume-button-kit.sh"'
-  }
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

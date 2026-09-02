@@ -30,6 +30,9 @@ class VolumeButtonListener {
   set suppressRepeatedPressEvents(bool value) =>
       _platform.setSuppressRepeatedPressEvents(value);
 
+  Duration get longPressDuration => _platform.longPressDuration;
+  set longPressDuration(Duration value) => _platform.longPressDuration = value;
+
   Future<double> getVolume() => _platform.getVolume();
 
   Future<void> setVolume(double volume) => _platform.setVolume(volume);
@@ -62,8 +65,41 @@ class VolumeButtonListener {
     await _syncNativeListenerState();
   }
 
+  Future<void> addButtonLongPressedListener(
+    VolumeButtonListenerCallback callback,
+  ) async {
+    if (!_platform.buttonLongPressedNotifier.addListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
+  Future<void> removeButtonLongPressedListener(
+    VolumeButtonListenerCallback callback,
+  ) async {
+    if (!_platform.buttonLongPressedNotifier.removeListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
+  Future<void> addButtonLongPressReleasedListener(
+    VolumeButtonListenerCallback callback,
+  ) async {
+    if (!_platform.buttonLongPressReleasedNotifier.addListener(callback)) {
+      return;
+    }
+    await _syncNativeListenerState();
+  }
+
+  Future<void> removeButtonLongPressReleasedListener(
+    VolumeButtonListenerCallback callback,
+  ) async {
+    if (!_platform.buttonLongPressReleasedNotifier.removeListener(callback)) {
+      return;
+    }
+    await _syncNativeListenerState();
+  }
+
   Future<void> pause() async {
     _isPaused = true;
+    _platform.cancelLongPressTimers();
     await _syncNativeListenerState();
   }
 
@@ -77,11 +113,14 @@ class VolumeButtonListener {
       final nativeListening = await isListening;
       bool hasListeners =
           _platform.buttonPressedNotifier.hasListeners ||
-          _platform.buttonReleasedNotifier.hasListeners;
+          _platform.buttonReleasedNotifier.hasListeners ||
+          _platform.buttonLongPressedNotifier.hasListeners ||
+          _platform.buttonLongPressReleasedNotifier.hasListeners;
       if (hasListeners && !_isPaused) {
         await _ensureVolumeAwayFromBoundsIfNeeded();
         if (!nativeListening) await _platform.startListener();
       } else if (nativeListening) {
+        _platform.cancelLongPressTimers();
         await _platform.stopListener();
       }
     });

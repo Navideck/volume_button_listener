@@ -7,7 +7,8 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 ## Features
 
 - Singleton API via `VolumeButtonListener.instance`
-- Press and release callbacks for volume up and volume down
+- Press, release, long press, and long press release callbacks for volume up and volume down
+- Configurable global `longPressDuration` (default `500ms`) with smart short-press deferral
 - Optional suppression of duplicate consecutive events
 - Pause and resume listening without removing callbacks
 - Control whether the native volume UI is shown
@@ -15,13 +16,15 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 ## Platform support
 
-|                          | Android | iOS | macOS | Windows | Linux |
-| :----------------------- | :-----: | :-: | :---: | :-----: | :---: |
-| addButtonPressedListener |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| addButtonReleasedListener|   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| showVolumeUI             |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| getVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
-| setVolume                |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
+|                                     | Android | iOS | macOS | Windows | Linux |
+| :---------------------------------- | :-----: | :-: | :---: | :-----: | :---: |
+| addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| addButtonLongPressedListener        |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| addButtonLongPressReleasedListener  |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| showVolumeUI                        |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
+| getVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
+| setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
 
 Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Linux and Web).
 
@@ -50,15 +53,28 @@ if (VolumeButtonListener.supportsVolumeButtonListener) {
   listener.suppressRepeatedPressEvents = true;
 
   void onPressed(VolumeButtonDirection direction) {
-    // Volume up or down pressed
+    // Volume up or down pressed (or short pressed if long press listeners are active)
   }
 
   void onReleased(VolumeButtonDirection direction) {
     // Volume up or down released
   }
 
+  void onLongPressed(VolumeButtonDirection direction) {
+    // Volume up or down long pressed
+  }
+
+  void onLongPressReleased(VolumeButtonDirection direction) {
+    // Volume up or down released after a long press
+  }
+
+  // Set long press threshold (defaults to 500ms):
+  listener.longPressDuration = const Duration(milliseconds: 600);
+
   await listener.addButtonPressedListener(onPressed);
   await listener.addButtonReleasedListener(onReleased);
+  await listener.addButtonLongPressedListener(onLongPressed);
+  await listener.addButtonLongPressReleasedListener(onLongPressReleased);
 
   // Optional:
   await listener.pause();
@@ -68,6 +84,8 @@ if (VolumeButtonListener.supportsVolumeButtonListener) {
   // Cleanup:
   await listener.removeButtonPressedListener(onPressed);
   await listener.removeButtonReleasedListener(onReleased);
+  await listener.removeButtonLongPressedListener(onLongPressed);
+  await listener.removeButtonLongPressReleasedListener(onLongPressReleased);
 }
 
 // Available on all supported desktop/mobile platforms except Web:
@@ -77,9 +95,9 @@ await listener.setVolume(0.5);
 
 ## Lifecycle
 
-1. No native button events are delivered until at least one callback is registered via `addButtonPressedListener` or `addButtonReleasedListener`.
+1. No native button events are delivered until at least one callback is registered via `addButtonPressedListener`, `addButtonReleasedListener`, `addButtonLongPressedListener`, or `addButtonLongPressReleasedListener`.
 2. Native listening starts automatically when the first callback is added.
-3. `pause()` suspends forwarding; `resume()` re-enables it for already-registered callbacks.
+3. `pause()` suspends forwarding and cancels active timers; `resume()` re-enables it for already-registered callbacks.
 4. Removing the last callback stops native listening and releases native resources.
 5. On iOS, if volume is exactly `0.0` or `1.0` when listening starts, it is nudged slightly away from the bounds so subsequent button presses can be detected reliably.
 
