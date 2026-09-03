@@ -12,7 +12,7 @@ dart run pigeon --input pigeon/volume_button_listener.dart\
 
 # Generate MacOS code
 dart run pigeon --input pigeon/volume_button_listener.dart\
-  --swift_out macos/Classes/VolumeButtonListener.g.swift 
+  --swift_out macos/volume_button_listener/Sources/volume_button_listener/VolumeButtonListener.g.swift 
 
 
 # Windows

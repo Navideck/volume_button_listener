@@ -1,3 +1,6 @@
+## 0.3.1
+* Add macOS SPM support
+
 ## 0.3.0
 * Add long press support
 

@@ -1,6 +1,6 @@
 name: volume_button_listener
 description: "Listen to hardware volume button events and control system volume"
-version: 0.3.0
+version: 0.3.1
 homepage: https://github.com/Navideck/volume_button_listener.git
 repository: https://github.com/Navideck/volume_button_listener
 issue_tracker: https://github.com/Navideck/volume_button_listener/issues
