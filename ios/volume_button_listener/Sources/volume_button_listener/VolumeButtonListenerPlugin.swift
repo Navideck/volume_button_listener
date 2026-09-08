@@ -1,4 +1,7 @@
 import Flutter
+#if canImport(VolumeButtonKit)
+import VolumeButtonKit
+#endif
 
 public class VolumeButtonListenerPlugin: NSObject, FlutterPlugin, VolumeButtonListenerPlatformChannel {
   private let callbackChannel: VolumeButtonListenerCallbackChannel

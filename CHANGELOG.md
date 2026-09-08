@@ -1,3 +1,6 @@
+## 0.3.2
+* Fix iOS builds using Swift Package Manager
+
 ## 0.3.1
 * Add macOS SPM support
 
