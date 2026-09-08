@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "volumebuttonkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Navideck/VolumeButtonKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d243ecdbd94cf8d639b6214a753831395bac3b80"
+      }
+    }
+  ],
+  "version" : 2
+}
