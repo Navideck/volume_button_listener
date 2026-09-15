@@ -44,6 +44,8 @@ void main() {
       listener = TestVolumeButtonListener();
       listener.setSuppressRepeatedPressEvents(false);
       listener.longPressDuration = const Duration(milliseconds: 300);
+      listener.multiPressWindow = const Duration(milliseconds: 300);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
     });
 
     tearDown(() {
@@ -227,6 +229,176 @@ void main() {
         async.elapse(const Duration(milliseconds: 150));
 
         expect(longPressedEvents, [VolumeButtonDirection.up]);
+      });
+    });
+  });
+
+  group('VolumeButtonListenerInterface Multi Press Tests', () {
+    late TestVolumeButtonListener listener;
+    late List<VolumeButtonDirection> pressedEvents;
+    late List<VolumeButtonDirection> releasedEvents;
+    late List<VolumeButtonDirection> longPressedEvents;
+    late List<(VolumeButtonDirection, int)> multiPressedEvents;
+
+    setUp(() {
+      listener = TestVolumeButtonListener();
+      listener.setSuppressRepeatedPressEvents(false);
+      listener.longPressDuration = const Duration(milliseconds: 300);
+      listener.multiPressWindow = const Duration(milliseconds: 300);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      pressedEvents = [];
+      releasedEvents = [];
+      longPressedEvents = [];
+      multiPressedEvents = [];
+
+      listener.buttonPressedNotifier.addListener(pressedEvents.add);
+      listener.buttonReleasedNotifier.addListener(releasedEvents.add);
+      listener.buttonLongPressedNotifier.addListener(longPressedEvents.add);
+      listener.buttonMultiPressedNotifier.addListener(
+        (direction, count) => multiPressedEvents.add((direction, count)),
+      );
+    });
+
+    tearDown(() {
+      listener.cancelLongPressTimers();
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    void tap(VolumeButtonDirection direction) {
+      final isUp = direction == VolumeButtonDirection.up;
+      listener.notifyVolumeButtonPressed(isUp);
+      listener.notifyVolumeButtonReleased(isUp);
+    }
+
+    test('Fires a double press after the second press and suppresses singles', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.up);
+
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 350));
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.up, 2)]);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Fires a triple press only once for three rapid presses', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.down);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.down);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.down);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.down, 3)]);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Ignores a fourth press until the window resets', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.up, 3)]);
+      });
+    });
+
+    test('Fires two separate single presses when the gap exceeds the window', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 400));
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.up]);
+        expect(releasedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.up]);
+      });
+    });
+
+    test('Does not combine different directions', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.down);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.down]);
+        expect(releasedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.down]);
+      });
+    });
+
+    test('Defers a single press until the window elapses', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(pressedEvents, [VolumeButtonDirection.up]);
+        expect(releasedEvents, [VolumeButtonDirection.up]);
+      });
+    });
+
+    test('Fires double press with long-press listeners on a short second release', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.up, 2)]);
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Lets a held second press become a long press instead of a double', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        async.elapse(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(longPressedEvents, [VolumeButtonDirection.up]);
+        expect(multiPressedEvents, isEmpty);
+
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(multiPressedEvents, isEmpty);
+        expect(longPressedEvents, [VolumeButtonDirection.up]);
+      });
+    });
+
+    test('cancelLongPressTimers clears pending multi-press state', () {
+      fakeAsync((async) {
+        tap(VolumeButtonDirection.up);
+        listener.cancelLongPressTimers();
+        async.elapse(const Duration(milliseconds: 400));
+
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
       });
     });
   });

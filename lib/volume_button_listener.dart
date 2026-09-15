@@ -12,6 +12,8 @@ import 'package:volume_button_listener/src/volume_button_listener_vc.dart';
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
 
 export 'package:volume_button_listener/src/volume_button_direction.dart';
+export 'package:volume_button_listener/src/volume_button_notifier.dart'
+    show VolumeButtonListenerCallback, VolumeButtonMultiPressCallback;
 
 /// A singleton manager for listening to hardware volume button events
 /// and controlling system volume.
@@ -47,6 +49,14 @@ class VolumeButtonListener {
 
   /// Sets the minimum duration a volume button must be held down to trigger a long-press event.
   set longPressDuration(Duration value) => _platform.longPressDuration = value;
+
+  /// The maximum gap between consecutive press-downs for them to count as a
+  /// single double or triple press.
+  Duration get multiPressWindow => _platform.multiPressWindow;
+
+  /// Sets the maximum gap between consecutive press-downs for them to count as
+  /// a single double or triple press.
+  set multiPressWindow(Duration value) => _platform.multiPressWindow = value;
 
   /// Gets the current system volume level between `0.0` and `1.0`.
   Future<double> getVolume() => _platform.getVolume();
@@ -122,6 +132,24 @@ class VolumeButtonListener {
     await _syncNativeListenerState();
   }
 
+  /// Adds a [callback] that is invoked when a volume button is pressed twice or
+  /// three times in quick succession. The callback receives the pressed
+  /// direction and the number of presses (`2` or `3`).
+  Future<void> addButtonMultiPressedListener(
+    VolumeButtonMultiPressCallback callback,
+  ) async {
+    if (!_platform.buttonMultiPressedNotifier.addListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
+  /// Removes a previously registered multi-pressed [callback].
+  Future<void> removeButtonMultiPressedListener(
+    VolumeButtonMultiPressCallback callback,
+  ) async {
+    if (!_platform.buttonMultiPressedNotifier.removeListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
   /// Temporarily pauses volume button listening and cancels active timers without removing listeners.
   Future<void> pause() async {
     _isPaused = true;
@@ -142,7 +170,8 @@ class VolumeButtonListener {
           _platform.buttonPressedNotifier.hasListeners ||
           _platform.buttonReleasedNotifier.hasListeners ||
           _platform.buttonLongPressedNotifier.hasListeners ||
-          _platform.buttonLongPressReleasedNotifier.hasListeners;
+          _platform.buttonLongPressReleasedNotifier.hasListeners ||
+          _platform.buttonMultiPressedNotifier.hasListeners;
       if (hasListeners && !_isPaused) {
         await _ensureVolumeAwayFromBoundsIfNeeded();
         if (!nativeListening) await _platform.startListener();

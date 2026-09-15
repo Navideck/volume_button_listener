@@ -27,14 +27,16 @@ enum _EventType {
   released,
   longPressed,
   longPressReleased,
+  multiPressed,
 }
 
 class _LogEntry {
   final _EventType type;
   final VolumeButtonDirection direction;
   final DateTime at;
+  final int count;
 
-  _LogEntry(this.type, this.direction, this.at);
+  _LogEntry(this.type, this.direction, this.at, {this.count = 0});
 
   factory _LogEntry.buttonPressed(VolumeButtonDirection direction) =>
       _LogEntry(_EventType.pressed, direction, DateTime.now());
@@ -48,12 +50,20 @@ class _LogEntry {
   factory _LogEntry.buttonLongPressReleased(VolumeButtonDirection direction) =>
       _LogEntry(_EventType.longPressReleased, direction, DateTime.now());
 
+  factory _LogEntry.buttonMultiPressed(
+    VolumeButtonDirection direction,
+    int count,
+  ) => _LogEntry(_EventType.multiPressed, direction, DateTime.now(), count: count);
+
   String get label {
     final typeStr = switch (type) {
       _EventType.pressed => 'pressed',
       _EventType.released => 'released',
       _EventType.longPressed => 'LONG PRESSED',
       _EventType.longPressReleased => 'long press released',
+      _EventType.multiPressed => count >= 3
+          ? 'TRIPLE PRESSED'
+          : 'DOUBLE PRESSED',
     };
     return '$_labelPrefix . $typeStr';
   }
@@ -77,14 +87,19 @@ class _MyAppState extends State<MyApp> {
   bool _listenReleased = true;
   bool _listenLongPressed = true;
   bool _listenLongPressReleased = true;
+  bool _listenMultiPressed = true;
 
   int _longPressMs = 500;
+  int _multiPressWindowMs = 300;
 
   @override
   void initState() {
     super.initState();
     VolumeButtonListener.instance.longPressDuration = Duration(
       milliseconds: _longPressMs,
+    );
+    VolumeButtonListener.instance.multiPressWindow = Duration(
+      milliseconds: _multiPressWindowMs,
     );
     unawaited(_addListeners());
   }
@@ -116,6 +131,11 @@ class _MyAppState extends State<MyApp> {
         _buttonLongPressReleasedCallback,
       );
     }
+    if (_listenMultiPressed) {
+      await VolumeButtonListener.instance.addButtonMultiPressedListener(
+        _buttonMultiPressedCallback,
+      );
+    }
     await _refreshListeningState();
   }
 
@@ -131,6 +151,9 @@ class _MyAppState extends State<MyApp> {
     );
     await VolumeButtonListener.instance.removeButtonLongPressReleasedListener(
       _buttonLongPressReleasedCallback,
+    );
+    await VolumeButtonListener.instance.removeButtonMultiPressedListener(
+      _buttonMultiPressedCallback,
     );
     await _refreshListeningState();
   }
@@ -170,6 +193,18 @@ class _MyAppState extends State<MyApp> {
 
   void _buttonLongPressReleasedCallback(VolumeButtonDirection direction) {
     final entry = _LogEntry.buttonLongPressReleased(direction);
+    setState(() {
+      _lastVolumeEvent = entry;
+      _volumeLog.insert(0, entry);
+      if (_volumeLog.length > _maxLogEntries) _volumeLog.removeLast();
+    });
+  }
+
+  void _buttonMultiPressedCallback(
+    VolumeButtonDirection direction,
+    int count,
+  ) {
+    final entry = _LogEntry.buttonMultiPressed(direction, count);
     setState(() {
       _lastVolumeEvent = entry;
       _volumeLog.insert(0, entry);
@@ -397,6 +432,12 @@ class _MyAppState extends State<MyApp> {
                         onSelected: (v) =>
                             setState(() => _listenLongPressReleased = v),
                       ),
+                      FilterChip(
+                        label: const Text('Multi Pressed'),
+                        selected: _listenMultiPressed,
+                        onSelected: (v) =>
+                            setState(() => _listenMultiPressed = v),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -421,6 +462,35 @@ class _MyAppState extends State<MyApp> {
                                   milliseconds: ms,
                                 );
                                 addOtherLog('Long press duration: ${ms}ms');
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        'Multi Press Window: ${_multiPressWindowMs}ms',
+                        style: theme.textTheme.labelMedium,
+                      ),
+                      const Spacer(),
+                      for (final ms in [200, 300, 400, 500]) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: ChoiceChip(
+                            label: Text('${ms}ms'),
+                            selected: _multiPressWindowMs == ms,
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => _multiPressWindowMs = ms);
+                                VolumeButtonListener.instance
+                                    .multiPressWindow = Duration(
+                                  milliseconds: ms,
+                                );
+                                addOtherLog('Multi press window: ${ms}ms');
                               }
                             },
                           ),
@@ -552,11 +622,13 @@ class _VolumeLogTile extends StatelessWidget {
       _EventType.released => (colorScheme.outline, false),
       _EventType.longPressed => (Colors.amber.shade800, true),
       _EventType.longPressReleased => (Colors.amber.shade700, false),
+      _EventType.multiPressed => (Colors.deepPurple.shade400, true),
     };
 
     final icon = switch (entry.type) {
       _EventType.longPressed ||
       _EventType.longPressReleased => Icons.touch_app_rounded,
+      _EventType.multiPressed => Icons.repeat_rounded,
       _ => (isUp ? Icons.add_circle : Icons.remove_circle),
     };
 

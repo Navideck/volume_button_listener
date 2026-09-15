@@ -1,3 +1,7 @@
+## 0.4.0
+* Add double and triple press support via `addButtonMultiPressedListener`
+* Add configurable `multiPressWindow` (default `300ms`)
+
 ## 0.3.2
 * Fix iOS builds using Swift Package Manager
 
