@@ -1,3 +1,7 @@
+## 0.5.0
+* Double and triple press support via `addButtonMultiPressedListener`, with a
+  configurable `multiPressWindow` (default `300ms`).
+
 ## 0.4.1
 * Add Linux support for volume button press/release/long-press/multi-press events with no end-user setup:
   * Non-Wayland X11 sessions use a global key grab (consumes the key)
