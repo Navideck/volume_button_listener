@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
 
+part 'src/event_widgets.dart';
+part 'src/log_entries.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
@@ -15,70 +18,30 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _OtherLogEntry {
-  final String message;
-  final DateTime at;
-
-  _OtherLogEntry(this.message, this.at);
-}
-
-enum _EventType {
-  pressed,
-  released,
-  longPressed,
-  longPressReleased,
-}
-
-class _LogEntry {
-  final _EventType type;
-  final VolumeButtonDirection direction;
-  final DateTime at;
-
-  _LogEntry(this.type, this.direction, this.at);
-
-  factory _LogEntry.buttonPressed(VolumeButtonDirection direction) =>
-      _LogEntry(_EventType.pressed, direction, DateTime.now());
-
-  factory _LogEntry.buttonReleased(VolumeButtonDirection direction) =>
-      _LogEntry(_EventType.released, direction, DateTime.now());
-
-  factory _LogEntry.buttonLongPressed(VolumeButtonDirection direction) =>
-      _LogEntry(_EventType.longPressed, direction, DateTime.now());
-
-  factory _LogEntry.buttonLongPressReleased(VolumeButtonDirection direction) =>
-      _LogEntry(_EventType.longPressReleased, direction, DateTime.now());
-
-  String get label {
-    final typeStr = switch (type) {
-      _EventType.pressed => 'pressed',
-      _EventType.released => 'released',
-      _EventType.longPressed => 'LONG PRESSED',
-      _EventType.longPressReleased => 'long press released',
-    };
-    return '$_labelPrefix . $typeStr';
-  }
-
-  String get _labelPrefix => switch (direction) {
-    VolumeButtonDirection.up => 'Volume up',
-    VolumeButtonDirection.down => 'Volume down',
-  };
-}
-
 class _MyAppState extends State<MyApp> {
   static const int _maxLogEntries = 80;
+  static const double _wideBreakpoint = 700;
+
   final List<_LogEntry> _volumeLog = [];
   final List<_OtherLogEntry> _otherLog = [];
   bool isListening = false;
   _LogEntry? _lastVolumeEvent;
   double? _currentVolume;
   bool _isFetchingVolume = false;
+  bool _controlsExpanded = true;
 
   bool _listenPressed = true;
   bool _listenReleased = true;
   bool _listenLongPressed = true;
   bool _listenLongPressReleased = true;
+  bool _listenMultiPressed = true;
 
   int _longPressMs = 500;
+  int _multiPressWindowMs = 300;
+
+  LinuxVolumeButtonSetupStatus _captureSetupStatus =
+      LinuxVolumeButtonSetupStatus.notApplicable;
+  bool _settingUpCapture = false;
 
   @override
   void initState() {
@@ -86,6 +49,10 @@ class _MyAppState extends State<MyApp> {
     VolumeButtonListener.instance.longPressDuration = Duration(
       milliseconds: _longPressMs,
     );
+    VolumeButtonListener.instance.multiPressWindow = Duration(
+      milliseconds: _multiPressWindowMs,
+    );
+    _captureSetupStatus = LinuxVolumeButtonSetup.status();
     unawaited(_addListeners());
   }
 
@@ -116,6 +83,11 @@ class _MyAppState extends State<MyApp> {
         _buttonLongPressReleasedCallback,
       );
     }
+    if (_listenMultiPressed) {
+      await VolumeButtonListener.instance.addButtonMultiPressedListener(
+        _buttonMultiPressedCallback,
+      );
+    }
     await _refreshListeningState();
   }
 
@@ -132,6 +104,9 @@ class _MyAppState extends State<MyApp> {
     await VolumeButtonListener.instance.removeButtonLongPressReleasedListener(
       _buttonLongPressReleasedCallback,
     );
+    await VolumeButtonListener.instance.removeButtonMultiPressedListener(
+      _buttonMultiPressedCallback,
+    );
     await _refreshListeningState();
   }
 
@@ -139,6 +114,29 @@ class _MyAppState extends State<MyApp> {
     final active = await VolumeButtonListener.instance.isListening;
     if (!mounted) return;
     setState(() => isListening = active);
+  }
+
+  Future<void> _setUpVolumeButtonCapture() async {
+    setState(() => _settingUpCapture = true);
+    final enabled = await LinuxVolumeButtonSetup.setUp();
+    if (!mounted) return;
+
+    if (enabled) {
+      // Restart listening so the native capture backend is picked up.
+      await VolumeButtonListener.instance.pause();
+      await VolumeButtonListener.instance.resume();
+      if (!mounted) return;
+    }
+
+    setState(() {
+      _settingUpCapture = false;
+      _captureSetupStatus = LinuxVolumeButtonSetup.status();
+    });
+    addOtherLog(
+      enabled
+          ? 'Hardware volume buttons enabled'
+          : 'Hardware volume buttons were not enabled (authentication cancelled or unsupported)',
+    );
   }
 
   void _buttonPressedCallback(VolumeButtonDirection direction) {
@@ -170,6 +168,18 @@ class _MyAppState extends State<MyApp> {
 
   void _buttonLongPressReleasedCallback(VolumeButtonDirection direction) {
     final entry = _LogEntry.buttonLongPressReleased(direction);
+    setState(() {
+      _lastVolumeEvent = entry;
+      _volumeLog.insert(0, entry);
+      if (_volumeLog.length > _maxLogEntries) _volumeLog.removeLast();
+    });
+  }
+
+  void _buttonMultiPressedCallback(
+    VolumeButtonDirection direction,
+    int count,
+  ) {
+    final entry = _LogEntry.buttonMultiPressed(direction, count);
     setState(() {
       _lastVolumeEvent = entry;
       _volumeLog.insert(0, entry);
@@ -230,442 +240,479 @@ class _MyAppState extends State<MyApp> {
             ),
           ],
         ),
-        body: Column(
-          children: [
-            // Minimal state label
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isListening
-                          ? colorScheme.primary
-                          : colorScheme.outline.withValues(alpha: 0.6),
-                    ),
-                  ),
-                  if (_lastVolumeEvent != null) ...[
-                    const SizedBox(width: 16),
-                    Text(
-                      'Last: ${_lastVolumeEvent!.label}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                  if (_currentVolume != null) ...[
-                    const SizedBox(width: 16),
-                    Text(
-                      'Volume: ${_currentVolume!.toStringAsFixed(2)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= _wideBreakpoint;
+            final statusBar = _buildStatusBar(theme, colorScheme);
 
-            const SizedBox(height: 16),
-
-            // Controls
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
+            if (isWide) {
+              return Column(
                 children: [
+                  statusBar,
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        final active =
-                            await VolumeButtonListener.instance.isListening;
-                        if (active) {
-                          await _removeListeners();
-                        } else {
-                          await _addListeners();
-                        }
-                      },
-                      icon: Icon(
-                        isListening
-                            ? Icons.stop_rounded
-                            : Icons.play_arrow_rounded,
-                      ),
-                      label: Text(isListening ? 'Stop' : 'Start'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _isFetchingVolume
-                          ? null
-                          : () async {
-                              setState(() => _isFetchingVolume = true);
-                              try {
-                                final volume = await VolumeButtonListener
-                                    .instance
-                                    .getVolume();
-                                if (mounted) {
-                                  setState(() {
-                                    _currentVolume = volume;
-                                    _isFetchingVolume = false;
-                                  });
-                                  addOtherLog(
-                                    'Volume: ${volume.toStringAsFixed(2)}',
-                                  );
-                                }
-                              } catch (e) {
-                                if (mounted) {
-                                  setState(() => _isFetchingVolume = false);
-                                  addOtherLog('Get volume error: $e');
-                                }
-                              }
-                            },
-                      icon: _isFetchingVolume
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: colorScheme.primary,
-                              ),
-                            )
-                          : const Icon(Icons.volume_up_outlined, size: 20),
-                      label: Text(_isFetchingVolume ? '…' : 'vol'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await VolumeButtonListener.instance.setVolume(0.5);
-                        if (mounted) addOtherLog('Set to 0.5');
-                      },
-                      icon: const Icon(Icons.tune_rounded, size: 20),
-                      label: const Text('0.5'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Listener toggles
-            const SizedBox(height: 8),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Listeners (restart to apply):',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 0,
-                    children: [
-                      FilterChip(
-                        label: const Text('Pressed'),
-                        selected: _listenPressed,
-                        onSelected: (v) => setState(() => _listenPressed = v),
-                      ),
-                      FilterChip(
-                        label: const Text('Released'),
-                        selected: _listenReleased,
-                        onSelected: (v) => setState(() => _listenReleased = v),
-                      ),
-                      FilterChip(
-                        label: const Text('Long Pressed'),
-                        selected: _listenLongPressed,
-                        onSelected: (v) =>
-                            setState(() => _listenLongPressed = v),
-                      ),
-                      FilterChip(
-                        label: const Text('Long Press Released'),
-                        selected: _listenLongPressReleased,
-                        onSelected: (v) =>
-                            setState(() => _listenLongPressReleased = v),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Text(
-                        'Long Press Duration: ${_longPressMs}ms',
-                        style: theme.textTheme.labelMedium,
-                      ),
-                      const Spacer(),
-                      for (final ms in [300, 500, 800, 1200]) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: ChoiceChip(
-                            label: Text('${ms}ms'),
-                            selected: _longPressMs == ms,
-                            onSelected: (selected) {
-                              if (selected) {
-                                setState(() => _longPressMs = ms);
-                                VolumeButtonListener.instance
-                                    .longPressDuration = Duration(
-                                  milliseconds: ms,
-                                );
-                                addOtherLog('Long press duration: ${ms}ms');
-                              }
-                            },
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: 380,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _buildControls(theme, colorScheme),
                           ),
                         ),
+                        const VerticalDivider(width: 1),
+                        Expanded(child: _buildEvents(theme, colorScheme)),
                       ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Show/Hide Volume UI
-            const SizedBox(height: 4),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          VolumeButtonListener.instance.showVolumeUI = true,
-                      icon: const Icon(Icons.visibility_rounded),
-                      label: const Text('Show Volume UI'),
-                    ),
-                    const SizedBox(width: 12),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          VolumeButtonListener.instance.showVolumeUI = false,
-                      icon: const Icon(Icons.visibility_off_rounded),
-                      label: const Text('Hide Volume UI'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          VolumeButtonListener
-                                  .instance
-                                  .suppressRepeatedPressEvents =
-                              true,
-                      icon: const Icon(Icons.repeat_one_rounded),
-                      label: const Text('Suppress Repeated Press Events'),
-                    ),
-                    const SizedBox(width: 12),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          VolumeButtonListener
-                                  .instance
-                                  .suppressRepeatedPressEvents =
-                              false,
-                      icon: const Icon(Icons.repeat_one_rounded),
-                      label: const Text('Allow Repeated Press Events'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  Text(
-                    'Events',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
-              ),
-            ),
+              );
+            }
 
-            // Log list (merged by time, newest first)
-            Expanded(
-              child: Builder(
-                builder: (context) {
-                  final merged = getMergedLogs();
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                    itemCount: merged.length,
-                    itemBuilder: (context, index) {
-                      final entry = merged[index];
-                      if (entry is _LogEntry) {
-                        return _VolumeLogTile(entry: entry);
-                      }
-                      return _OtherLogTile(
-                        message: (entry as _OtherLogEntry).message,
-                      );
-                    },
-                  );
-                },
+            return Column(
+              children: [
+                statusBar,
+                _buildControlsHeader(theme, colorScheme),
+                if (_controlsExpanded)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: constraints.maxHeight * 0.5,
+                    ),
+                    child: SingleChildScrollView(
+                      child: _buildControls(theme, colorScheme),
+                    ),
+                  ),
+                Expanded(child: _buildEvents(theme, colorScheme)),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBar(ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isListening
+                      ? colorScheme.primary
+                      : colorScheme.outline.withValues(alpha: 0.6),
+                ),
               ),
+              const SizedBox(width: 8),
+              Text(
+                isListening ? 'Listening' : 'Stopped',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (_lastVolumeEvent != null)
+            Text(
+              'Last: ${_lastVolumeEvent!.label}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          if (_currentVolume != null)
+            Text(
+              'Volume: ${_currentVolume!.toStringAsFixed(2)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlsHeader(ThemeData theme, ColorScheme colorScheme) {
+    return InkWell(
+      onTap: () => setState(() => _controlsExpanded = !_controlsExpanded),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            Text(
+              'Controls',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            Icon(
+              _controlsExpanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              color: colorScheme.onSurfaceVariant,
             ),
           ],
         ),
       ),
     );
   }
-}
 
-class _VolumeLogTile extends StatelessWidget {
-  const _VolumeLogTile({required this.entry});
-
-  final _LogEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isUp = entry.direction == VolumeButtonDirection.up;
-
-    final (color, isBold) = switch (entry.type) {
-      _EventType.pressed => (
-        isUp ? colorScheme.primary : colorScheme.tertiary,
-        true,
-      ),
-      _EventType.released => (colorScheme.outline, false),
-      _EventType.longPressed => (Colors.amber.shade800, true),
-      _EventType.longPressReleased => (Colors.amber.shade700, false),
-    };
-
-    final icon = switch (entry.type) {
-      _EventType.longPressed ||
-      _EventType.longPressReleased => Icons.touch_app_rounded,
-      _ => (isUp ? Icons.add_circle : Icons.remove_circle),
-    };
-
-    final time = _formatTime(entry.at);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Material(
-        color: color.withValues(alpha: isBold ? 0.18 : 0.10),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+  Widget _buildControls(ThemeData theme, ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
             children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      entry.label,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    Text(
-                      time,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    final active =
+                        await VolumeButtonListener.instance.isListening;
+                    if (active) {
+                      await _removeListeners();
+                    } else {
+                      await _addListeners();
+                    }
+                  },
+                  icon: Icon(
+                    isListening ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                  ),
+                  label: Text(isListening ? 'Stop' : 'Start'),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(6),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isFetchingVolume
+                      ? null
+                      : () async {
+                          setState(() => _isFetchingVolume = true);
+                          try {
+                            final volume =
+                                await VolumeButtonListener.instance.getVolume();
+                            if (mounted) {
+                              setState(() {
+                                _currentVolume = volume;
+                                _isFetchingVolume = false;
+                              });
+                              addOtherLog(
+                                'Volume: ${volume.toStringAsFixed(2)}',
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setState(() => _isFetchingVolume = false);
+                              addOtherLog('Get volume error: $e');
+                            }
+                          }
+                        },
+                  icon: _isFetchingVolume
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: colorScheme.primary,
+                          ),
+                        )
+                      : const Icon(Icons.volume_up_outlined, size: 20),
+                  label: Text(_isFetchingVolume ? '…' : 'vol'),
                 ),
-                child: Text(
-                  isUp ? 'UP' : 'DOWN',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await VolumeButtonListener.instance.setVolume(0.5);
+                    if (mounted) addOtherLog('Set to 0.5');
+                  },
+                  icon: const Icon(Icons.tune_rounded, size: 20),
+                  label: const Text('0.5'),
                 ),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _OtherLogTile extends StatelessWidget {
-  const _OtherLogTile({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Material(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
+        const SizedBox(height: 4),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.info_outline_rounded,
-                size: 18,
-                color: colorScheme.onSurfaceVariant,
+              Text(
+                'Listeners (restart to apply):',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  message,
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilterChip(
+                    label: const Text('Pressed'),
+                    selected: _listenPressed,
+                    onSelected: (v) => setState(() => _listenPressed = v),
+                  ),
+                  FilterChip(
+                    label: const Text('Released'),
+                    selected: _listenReleased,
+                    onSelected: (v) => setState(() => _listenReleased = v),
+                  ),
+                  FilterChip(
+                    label: const Text('Long Pressed'),
+                    selected: _listenLongPressed,
+                    onSelected: (v) => setState(() => _listenLongPressed = v),
+                  ),
+                  FilterChip(
+                    label: const Text('Long Press Released'),
+                    selected: _listenLongPressReleased,
+                    onSelected: (v) =>
+                        setState(() => _listenLongPressReleased = v),
+                  ),
+                  FilterChip(
+                    label: const Text('Multi Pressed'),
+                    selected: _listenMultiPressed,
+                    onSelected: (v) => setState(() => _listenMultiPressed = v),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: _buildDurationPicker(
+            theme: theme,
+            label: 'Long Press Duration: ${_longPressMs}ms',
+            options: const [300, 500, 800, 1200],
+            selected: _longPressMs,
+            onSelected: (ms) {
+              setState(() => _longPressMs = ms);
+              VolumeButtonListener.instance.longPressDuration = Duration(
+                milliseconds: ms,
+              );
+              addOtherLog('Long press duration: ${ms}ms');
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: _buildDurationPicker(
+            theme: theme,
+            label: 'Multi Press Window: ${_multiPressWindowMs}ms',
+            options: const [200, 300, 400, 500],
+            selected: _multiPressWindowMs,
+            onSelected: (ms) {
+              setState(() => _multiPressWindowMs = ms);
+              VolumeButtonListener.instance.multiPressWindow = Duration(
+                milliseconds: ms,
+              );
+              addOtherLog('Multi press window: ${ms}ms');
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () =>
+                    VolumeButtonListener.instance.showVolumeUI = true,
+                icon: const Icon(Icons.visibility_rounded),
+                label: const Text('Show Volume UI'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    VolumeButtonListener.instance.showVolumeUI = false,
+                icon: const Icon(Icons.visibility_off_rounded),
+                label: const Text('Hide Volume UI'),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => VolumeButtonListener
+                    .instance.suppressRepeatedPressEvents = true,
+                icon: const Icon(Icons.repeat_one_rounded),
+                label: const Text('Suppress Repeated Press Events'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => VolumeButtonListener
+                    .instance.suppressRepeatedPressEvents = false,
+                icon: const Icon(Icons.repeat_one_rounded),
+                label: const Text('Allow Repeated Press Events'),
+              ),
+            ],
+          ),
+        ),
+        if (_captureSetupStatus ==
+            LinuxVolumeButtonSetupStatus.needsSetup) ...[
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hardware volume buttons',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'This device routes its hardware volume buttons through the '
+                  'intel-hid 5-button array. Setup enables the array and grants '
+                  'the app access to capture the buttons, so the system volume '
+                  'change is suppressed. It requires administrator authentication.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
                 ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.icon(
+                    onPressed: _settingUpCapture
+                        ? null
+                        : _setUpVolumeButtonCapture,
+                    icon: _settingUpCapture
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.volume_up_rounded, size: 20),
+                    label: Text(
+                      _settingUpCapture
+                          ? 'Enabling…'
+                          : 'Enable hardware volume buttons',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDurationPicker({
+    required ThemeData theme,
+    required String label,
+    required List<int> options,
+    required int selected,
+    required ValueChanged<int> onSelected,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: theme.textTheme.labelMedium),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final ms in options)
+              ChoiceChip(
+                label: Text('${ms}ms'),
+                selected: selected == ms,
+                onSelected: (isSelected) {
+                  if (isSelected) onSelected(ms);
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEvents(ThemeData theme, ColorScheme colorScheme) {
+    final merged = getMergedLogs();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Row(
+            children: [
+              Text(
+                'Events',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${merged.length}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
         ),
-      ),
+        Expanded(
+          child: merged.isEmpty
+              ? Center(
+                  child: Text(
+                    'No events yet',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  itemCount: merged.length,
+                  itemBuilder: (context, index) {
+                    final entry = merged[index];
+                    if (entry is _LogEntry) {
+                      return _VolumeLogTile(entry: entry);
+                    }
+                    return _OtherLogTile(
+                      message: (entry as _OtherLogEntry).message,
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
 
-String _formatTime(DateTime dt) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final d = DateTime(dt.year, dt.month, dt.day);
-  final time =
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}.${(dt.millisecond ~/ 100).toString().padLeft(1, '0')}';
-  if (d == today) return time;
-  if (d == today.subtract(const Duration(days: 1))) return 'Yesterday $time';
-  return '${dt.month}/${dt.day} $time';
-}
