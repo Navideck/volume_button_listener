@@ -17,16 +17,22 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 ## Platform support
 
-|                                     | Android | iOS | macOS | Windows |   Linux    |
-| :---------------------------------- | :-----: | :-: | :---: | :-----: | :--------: |
-| addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
-| addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
-| addButtonLongPressedListener        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
-| addButtonLongPressReleasedListener  |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
-| addButtonMultiPressedListener       |   ✔️    | ⚠️  |  ✔️   |   ✔️    |     ⚠️     |
-| showVolumeUI                        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
-| getVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     |
-| setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     |
+Legend: ✔️ supported · ⚠️ supported with caveats · ❌ not supported.
+
+|                                     | Android | iOS | macOS | Windows |   Linux    | Web |
+| :---------------------------------- | :-----: | :-: | :---: | :-----: | :--------: | :-: |
+| addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| addButtonLongPressedListener        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| addButtonLongPressReleasedListener  |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| addButtonMultiPressedListener       |   ✔️    | ⚠️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| showVolumeUI                        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
+| getVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     | ❌  |
+| setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     | ❌  |
+
+- **Android** button events are only delivered while the app has a focused activity (the plugin throws if there is none), so listening does not work in the background.
+- **iOS** multi-press is best-effort (see the iOS caveat below).
+- **Linux** button capture depends on the session (see the Linux caveat below); `getVolume`/`setVolume` use ALSA through `flutter_volume_controller`.
 
 Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Web).
 
