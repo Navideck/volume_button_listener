@@ -18,8 +18,9 @@ class TestVolumeButtonListener with VolumeButtonListenerInterface {
   }
 
   @override
-  Future<void> startListener() async {
+  Future<VolumeButtonBackend> startListener() async {
     isListeningValue = true;
+    return VolumeButtonBackend.native;
   }
 
   @override

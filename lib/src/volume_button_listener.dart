@@ -14,7 +14,10 @@ class VolumeButtonListenerNative extends VolumeButtonListenerCallbackChannel
   }
 
   @override
-  Future<void> startListener() => _channel.startListener();
+  Future<VolumeButtonBackend> startListener() async {
+    await _channel.startListener();
+    return VolumeButtonBackend.native;
+  }
 
   @override
   Future<void> setShowVolumeUi(bool showVolumeUi) =>

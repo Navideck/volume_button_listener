@@ -1,37 +1,24 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
+import 'package:volume_button_listener/src/button_sequence_detector.dart';
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
-import 'package:volume_button_listener/volume_button_listener.dart';
 
-class _ButtonState {
-  Timer? timer;
-  Timer? multiPressTimer;
-  int pressCount = 0;
-  int multiPressCount = 0;
-  bool isLongPressActive = false;
-  bool isReleased = false;
-  bool isWindowElapsed = false;
+/// The mechanism that is currently delivering volume button events.
+enum VolumeButtonBackend {
+  /// A native platform backend (Android, iOS, macOS, Windows).
+  native,
 
-  void reset() {
-    timer?.cancel();
-    timer = null;
-    multiPressTimer?.cancel();
-    multiPressTimer = null;
-    pressCount = 0;
-    multiPressCount = 0;
-    isLongPressActive = false;
-    isReleased = false;
-    isWindowElapsed = false;
-  }
+  /// Linux X11 passive key grab. The key is consumed.
+  x11,
 
-  void resetSequence() {
-    multiPressTimer?.cancel();
-    multiPressTimer = null;
-    multiPressCount = 0;
-    isReleased = false;
-    isWindowElapsed = false;
-  }
+  /// Linux exclusive evdev device grab. The key is consumed.
+  evdev,
+
+  /// Linux fallback that observes system volume changes. The system still
+  /// handles the key, so the volume UI cannot be suppressed.
+  volumeMonitor,
+
+  /// No backend is active.
+  none,
 }
 
 mixin VolumeButtonListenerInterface {
@@ -50,10 +37,20 @@ mixin VolumeButtonListenerInterface {
   Duration multiPressWindow = const Duration(milliseconds: 300);
 
   bool _suppressRepeatedPressEvents = true;
-  (bool isVolumeUp, bool isPressed)? _previousEvent;
 
-  final _ButtonState _upState = _ButtonState();
-  final _ButtonState _downState = _ButtonState();
+  late final ButtonSequenceDetector _sequence = ButtonSequenceDetector(
+    onPressed: buttonPressedNotifier.notify,
+    onReleased: buttonReleasedNotifier.notify,
+    onLongPressed: buttonLongPressedNotifier.notify,
+    onLongPressReleased: buttonLongPressReleasedNotifier.notify,
+    onMultiPressed: buttonMultiPressedNotifier.notify,
+    hasLongPressListeners: () => hasLongPressListeners,
+    hasMultiPressListeners: () => hasMultiPressListeners,
+    isIOS: () => defaultTargetPlatform == TargetPlatform.iOS,
+    longPressDuration: () => longPressDuration,
+    multiPressWindow: () => multiPressWindow,
+    suppressRepeatedPressEvents: () => _suppressRepeatedPressEvents,
+  );
 
   bool get hasLongPressListeners =>
       buttonLongPressedNotifier.hasListeners ||
@@ -61,11 +58,19 @@ mixin VolumeButtonListenerInterface {
 
   bool get hasMultiPressListeners => buttonMultiPressedNotifier.hasListeners;
 
+  /// Whether any button listener is registered.
+  bool get hasAnyListeners =>
+      buttonPressedNotifier.hasListeners ||
+      buttonReleasedNotifier.hasListeners ||
+      hasLongPressListeners ||
+      hasMultiPressListeners;
+
   Future<double> getVolume();
 
   Future<void> setVolume(double volume);
 
-  Future<void> startListener();
+  /// Starts listening and returns the backend that is now active.
+  Future<VolumeButtonBackend> startListener();
 
   Future<void> setShowVolumeUi(bool showVolumeUi);
 
@@ -76,166 +81,15 @@ mixin VolumeButtonListenerInterface {
   void setSuppressRepeatedPressEvents(bool suppressRepeatedPressEvents) {
     _suppressRepeatedPressEvents = suppressRepeatedPressEvents;
     if (!suppressRepeatedPressEvents) {
-      _previousEvent = null;
+      _sequence.resetSuppression();
     }
   }
 
-  void cancelLongPressTimers() {
-    _upState.reset();
-    _downState.reset();
-  }
+  void cancelLongPressTimers() => _sequence.cancelTimers();
 
-  void notifyVolumeButtonPressed(bool isVolumeUp) {
-    final shouldSuppress = _shouldSuppressEvent(isVolumeUp, isPressed: true);
-    final direction = _directionFromBool(isVolumeUp);
+  void notifyVolumeButtonPressed(bool isVolumeUp) =>
+      _sequence.press(isVolumeUp);
 
-    if (!hasLongPressListeners && !hasMultiPressListeners) {
-      if (shouldSuppress) return;
-      buttonPressedNotifier.notify(direction);
-      return;
-    }
-
-    final state = isVolumeUp ? _upState : _downState;
-    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
-
-    if (hasLongPressListeners && isIOS) {
-      state.pressCount++;
-      if (state.pressCount > 1) {
-        if (state.pressCount >= 3 && state.timer == null) {
-          _activateLongPress(state, direction);
-        }
-        return;
-      }
-    } else if (shouldSuppress) {
-      return;
-    }
-
-    _handlePressDown(state, direction, isIOS: isIOS);
-  }
-
-  void notifyVolumeButtonReleased(bool isVolumeUp) {
-    if (_shouldSuppressEvent(isVolumeUp, isPressed: false)) return;
-    final direction = _directionFromBool(isVolumeUp);
-
-    if (!hasLongPressListeners && !hasMultiPressListeners) {
-      buttonReleasedNotifier.notify(direction);
-      return;
-    }
-
-    final state = isVolumeUp ? _upState : _downState;
-
-    state.pressCount = 0;
-    state.timer?.cancel();
-    state.timer = null;
-    state.isReleased = true;
-
-    if (state.isLongPressActive) {
-      state.isLongPressActive = false;
-      buttonLongPressReleasedNotifier.notify(direction);
-      state.reset();
-      return;
-    }
-
-    if (hasMultiPressListeners) {
-      // Wait for the multi-press window to close so a following press can be
-      // counted. If the window already elapsed while the button was held,
-      // finalize now.
-      if (state.isWindowElapsed) {
-        _finalizeSequence(state, direction);
-      }
-      return;
-    }
-
-    // Long-press-only path (unchanged).
-    buttonPressedNotifier.notify(direction);
-    buttonReleasedNotifier.notify(direction);
-  }
-
-  void _handlePressDown(
-    _ButtonState state,
-    VolumeButtonDirection direction, {
-    required bool isIOS,
-  }) {
-    if (hasMultiPressListeners && state.multiPressCount >= 3) {
-      // Extra presses beyond a triple are ignored until the window resets.
-      return;
-    }
-
-    if (hasMultiPressListeners) {
-      state.multiPressCount++;
-      state.isReleased = false;
-      state.isWindowElapsed = false;
-      state.multiPressTimer?.cancel();
-      state.multiPressTimer = Timer(
-        multiPressWindow,
-        () => _onMultiPressWindowElapsed(state, direction),
-      );
-    }
-
-    if (hasLongPressListeners) {
-      state.timer?.cancel();
-      state.isLongPressActive = false;
-      state.timer = Timer(longPressDuration, () {
-        if (state.pressCount < 3 && isIOS) {
-          state.timer = null;
-          return;
-        }
-        state.timer = null;
-        _activateLongPress(state, direction);
-      });
-    }
-  }
-
-  void _onMultiPressWindowElapsed(
-    _ButtonState state,
-    VolumeButtonDirection direction,
-  ) {
-    state.multiPressTimer = null;
-    state.isWindowElapsed = true;
-
-    // A long press owns the interaction until the button is released.
-    if (state.isLongPressActive) return;
-
-    // Wait for the button to be released before finalizing.
-    if (!state.isReleased) return;
-
-    _finalizeSequence(state, direction);
-  }
-
-  void _finalizeSequence(
-    _ButtonState state,
-    VolumeButtonDirection direction,
-  ) {
-    if (state.isLongPressActive) return;
-
-    if (state.multiPressCount >= 2) {
-      buttonMultiPressedNotifier.notify(direction, state.multiPressCount);
-    } else {
-      buttonPressedNotifier.notify(direction);
-      buttonReleasedNotifier.notify(direction);
-    }
-    state.resetSequence();
-  }
-
-  void _activateLongPress(
-    _ButtonState state,
-    VolumeButtonDirection direction,
-  ) {
-    if (state.isLongPressActive) return;
-    state.isLongPressActive = true;
-    buttonLongPressedNotifier.notify(direction);
-  }
-
-  bool _shouldSuppressEvent(bool isVolumeUp, {required bool isPressed}) {
-    if (!_suppressRepeatedPressEvents) return false;
-    if (_previousEvent?.$1 == isVolumeUp && _previousEvent?.$2 == isPressed) {
-      return true;
-    }
-    _previousEvent = (isVolumeUp, isPressed);
-    return false;
-  }
-
-  VolumeButtonDirection _directionFromBool(bool isVolumeUp) {
-    return isVolumeUp ? VolumeButtonDirection.up : VolumeButtonDirection.down;
-  }
+  void notifyVolumeButtonReleased(bool isVolumeUp) =>
+      _sequence.release(isVolumeUp);
 }

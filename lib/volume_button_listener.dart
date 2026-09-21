@@ -8,9 +8,11 @@ import 'package:async_queue/async_queue.dart';
 import 'package:flutter/foundation.dart';
 import 'package:volume_button_listener/src/volume_button_listener.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
-import 'package:volume_button_listener/src/volume_button_listener_vc.dart';
+import 'package:volume_button_listener/src/volume_button_listener_linux.dart';
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
-
+export 'package:volume_button_listener/src/linux_volume_button_setup_stub.dart'
+    if (dart.library.io)
+        'package:volume_button_listener/src/linux_volume_button_setup.dart';
 export 'package:volume_button_listener/src/volume_button_direction.dart';
 export 'package:volume_button_listener/src/volume_button_notifier.dart'
     show VolumeButtonListenerCallback, VolumeButtonMultiPressCallback;
@@ -28,8 +30,11 @@ class VolumeButtonListener {
   final VolumeButtonListenerInterface _platform = _getPlatform();
 
   /// Whether hardware volume button listening is supported on the current platform.
-  static bool supportsVolumeButtonListener =
-      !kIsWeb && defaultTargetPlatform != TargetPlatform.linux;
+  ///
+  /// On Linux this is always `true`: X11 sessions use a global key grab,
+  /// Wayland sessions grab a dedicated volume device (or fall back to observing
+  /// system volume changes). None of these require extra permissions or setup.
+  static bool supportsVolumeButtonListener = !kIsWeb;
 
   bool _isPaused = false;
   final _syncQueue = AsyncQueue.autoStart(allowDuplicate: true);
@@ -67,88 +72,54 @@ class VolumeButtonListener {
   /// Adds a [callback] that is invoked when a volume button is pressed down.
   Future<void> addButtonPressedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonPressedNotifier.addListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _addListener(_platform.buttonPressedNotifier, callback);
 
   /// Removes a previously registered button-pressed [callback].
   Future<void> removeButtonPressedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonPressedNotifier.removeListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _removeListener(_platform.buttonPressedNotifier, callback);
 
   /// Adds a [callback] that is invoked when a volume button is released.
   Future<void> addButtonReleasedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonReleasedNotifier.addListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _addListener(_platform.buttonReleasedNotifier, callback);
 
   /// Removes a previously registered button-released [callback].
   Future<void> removeButtonReleasedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonReleasedNotifier.removeListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _removeListener(_platform.buttonReleasedNotifier, callback);
 
   /// Adds a [callback] that is invoked when a volume button is held down for [longPressDuration].
   Future<void> addButtonLongPressedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonLongPressedNotifier.addListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _addListener(_platform.buttonLongPressedNotifier, callback);
 
   /// Removes a previously registered button long-pressed [callback].
   Future<void> removeButtonLongPressedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonLongPressedNotifier.removeListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _removeListener(_platform.buttonLongPressedNotifier, callback);
 
   /// Adds a [callback] that is invoked when a volume button is released after a long-press event.
   Future<void> addButtonLongPressReleasedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonLongPressReleasedNotifier.addListener(callback)) {
-      return;
-    }
-    await _syncNativeListenerState();
-  }
+  ) => _addListener(_platform.buttonLongPressReleasedNotifier, callback);
 
   /// Removes a previously registered button long-press released [callback].
   Future<void> removeButtonLongPressReleasedListener(
     VolumeButtonListenerCallback callback,
-  ) async {
-    if (!_platform.buttonLongPressReleasedNotifier.removeListener(callback)) {
-      return;
-    }
-    await _syncNativeListenerState();
-  }
+  ) => _removeListener(_platform.buttonLongPressReleasedNotifier, callback);
 
   /// Adds a [callback] that is invoked when a volume button is pressed twice or
   /// three times in quick succession. The callback receives the pressed
   /// direction and the number of presses (`2` or `3`).
   Future<void> addButtonMultiPressedListener(
     VolumeButtonMultiPressCallback callback,
-  ) async {
-    if (!_platform.buttonMultiPressedNotifier.addListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _addListener(_platform.buttonMultiPressedNotifier, callback);
 
   /// Removes a previously registered multi-pressed [callback].
   Future<void> removeButtonMultiPressedListener(
     VolumeButtonMultiPressCallback callback,
-  ) async {
-    if (!_platform.buttonMultiPressedNotifier.removeListener(callback)) return;
-    await _syncNativeListenerState();
-  }
+  ) => _removeListener(_platform.buttonMultiPressedNotifier, callback);
 
   /// Temporarily pauses volume button listening and cancels active timers without removing listeners.
   Future<void> pause() async {
@@ -163,16 +134,26 @@ class VolumeButtonListener {
     await _syncNativeListenerState();
   }
 
+  Future<void> _addListener<T>(
+    VolumeButtonNotifierBase<T> notifier,
+    T callback,
+  ) async {
+    if (!notifier.addListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
+  Future<void> _removeListener<T>(
+    VolumeButtonNotifierBase<T> notifier,
+    T callback,
+  ) async {
+    if (!notifier.removeListener(callback)) return;
+    await _syncNativeListenerState();
+  }
+
   Future<void> _syncNativeListenerState() {
     return _syncQueue.addJob((_) async {
       final nativeListening = await isListening;
-      bool hasListeners =
-          _platform.buttonPressedNotifier.hasListeners ||
-          _platform.buttonReleasedNotifier.hasListeners ||
-          _platform.buttonLongPressedNotifier.hasListeners ||
-          _platform.buttonLongPressReleasedNotifier.hasListeners ||
-          _platform.buttonMultiPressedNotifier.hasListeners;
-      if (hasListeners && !_isPaused) {
+      if (_platform.hasAnyListeners && !_isPaused) {
         await _ensureVolumeAwayFromBoundsIfNeeded();
         if (!nativeListening) await _platform.startListener();
       } else if (nativeListening) {
@@ -201,7 +182,7 @@ class VolumeButtonListener {
       throw UnsupportedError('Volume button listener is not supported on web');
     }
     if (defaultTargetPlatform == TargetPlatform.linux) {
-      return VolumeButtonListenerVC.instance;
+      return VolumeButtonListenerLinux.instance;
     }
     return VolumeButtonListenerNative.instance;
   }

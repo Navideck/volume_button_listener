@@ -14,6 +14,9 @@ set(PLUGIN_NAME "volume_button_listener_plugin")
 # Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
   "volume_button_listener_plugin.cc"
+  "x11_backend.cc"
+  "evdev_backend.cc"
+  "evdev_repeat_coalescer.cc"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -41,6 +44,11 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
+# X11 is required to grab the global volume media keys.
+find_package(X11 REQUIRED)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${X11_INCLUDE_DIR})
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${X11_LIBRARIES})
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.
@@ -65,7 +73,7 @@ enable_testing()
 include(FetchContent)
 FetchContent_Declare(
   googletest
-  URL https://github.com/google/googletest/archive/release-1.11.0.zip
+  URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
 )
 # Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -78,12 +86,15 @@ FetchContent_MakeAvailable(googletest)
 # sources directly into the test binary rather than using the shared library.
 add_executable(${TEST_RUNNER}
   test/volume_button_listener_plugin_test.cc
+  test/evdev_repeat_coalescer_test.cc
   ${PLUGIN_SOURCES}
 )
 apply_standard_settings(${TEST_RUNNER})
 target_include_directories(${TEST_RUNNER} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(${TEST_RUNNER} PRIVATE ${X11_INCLUDE_DIR})
 target_link_libraries(${TEST_RUNNER} PRIVATE flutter)
 target_link_libraries(${TEST_RUNNER} PRIVATE PkgConfig::GTK)
+target_link_libraries(${TEST_RUNNER} PRIVATE ${X11_LIBRARIES})
 target_link_libraries(${TEST_RUNNER} PRIVATE gtest_main gmock)
 
 # Enable automatic test discovery.

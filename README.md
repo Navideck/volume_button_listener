@@ -17,18 +17,18 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 ## Platform support
 
-|                                     | Android | iOS | macOS | Windows | Linux |
-| :---------------------------------- | :-----: | :-: | :---: | :-----: | :---: |
-| addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| addButtonLongPressedListener        |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| addButtonLongPressReleasedListener  |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| addButtonMultiPressedListener       |   ✔️    | ⚠️  |  ✔️   |   ✔️    |  ❌   |
-| showVolumeUI                        |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ❌   |
-| getVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
-| setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |  ✔️   |
+|                                     | Android | iOS | macOS | Windows |   Linux    |
+| :---------------------------------- | :-----: | :-: | :---: | :-----: | :--------: |
+| addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
+| addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
+| addButtonLongPressedListener        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
+| addButtonLongPressReleasedListener  |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
+| addButtonMultiPressedListener       |   ✔️    | ⚠️  |  ✔️   |   ✔️    |     ⚠️     |
+| showVolumeUI                        |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     |
+| getVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     |
+| setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     |
 
-Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Linux and Web).
+Use `VolumeButtonListener.supportsVolumeButtonListener` to check whether volume button press and release events are available on the current platform (`false` on Web).
 
 ### Multi-press behavior
 
@@ -45,6 +45,46 @@ iOS is treated as a best-effort target for multi-press. The native layer reports
 ### macOS App Store review
 
 On macOS, button listening uses a Core Graphics event tap and requires Input Monitoring/Accessibility access. Apple may reject Mac App Store apps that use this access for non-accessibility features under App Review Guideline 2.4.5. Mac App Store apps should keep volume-button listening disabled by default and let users explicitly enable it, or omit the feature on macOS. Reading and setting system volume does not start the event tap.
+
+### Linux caveat
+
+The plugin picks a backend automatically:
+
+- **Non-Wayland X11**: captures the `XF86AudioRaiseVolume` / `XF86AudioLowerVolume` media keys with a passive keyboard grab. No extra permissions are required, but the grabbed key is consumed, so it no longer changes the volume or shows the volume HUD. Set `showVolumeUI = true` to have the plugin emulate the volume change itself (the native HUD still cannot be shown); with the default `showVolumeUI = false`, call `setVolume` yourself if needed.
+- **Wayland, with a dedicated volume-key device**: grabs that input device exclusively (`EVIOCGRAB`), so the compositor never sees the key and the system volume change (and its OSD) is suppressed. This yields true press/release events and works on any compositor. Some devices (for example the Intel HID 5-button array) report auto-repeat as fresh press/release pairs every ~150 ms instead of `value == 2`; these are coalesced so holding the key still produces a single long press. It requires the input device to be accessible to the session, which the setup helper below arranges with a narrowly scoped udev rule (non-keyboard key devices only).
+- **Otherwise**: falls back to observing system volume changes. This is best-effort: the desktop handles the key as usual, so the volume UI cannot be suppressed, no event is produced when the volume is already at `0.0` or `1.0`, and long-press/multi-press are approximate. Only the change in volume is used, so a change made by another application is also reported.
+
+Additional notes:
+
+- **Build dependency.** Linking against X11 (`libx11-dev` on Debian/Ubuntu) is required.
+- **Grab conflicts (X11).** If another application or the desktop environment already grabs the volume keys, the X11 grab fails and the plugin falls back to the exclusive device grab, then to observing volume changes.
+- **Detachable tablets (for example the HP Elite x2 1012 G2).** On some 2-in-1 tablets the side volume buttons are handled by the `intel-hid` 5-button array, which the kernel only enables for a DMI allowlist of models. If the hardware buttons do nothing system-wide (no volume change and no OSD), the opt-in `LinuxVolumeButtonSetup` API sets this up for the user: it writes the `intel-hid` option and installs the input-device access rule, then reloads the module and udev. It requires administrator rights, so it shows a single polkit authentication prompt via `pkexec`. It is a one-time setup: `setUp()` returns immediately without prompting once the system is ready, so it is safe to call on every launch. Call it in response to an explicit user action the first time.
+
+  ```dart
+  if (LinuxVolumeButtonSetup.status() ==
+      LinuxVolumeButtonSetupStatus.needsSetup) {
+    final ready = await LinuxVolumeButtonSetup.setUp();
+    if (ready) {
+      // Restart listening so the exclusive-grab backend is picked up.
+      await VolumeButtonListener.instance.pause();
+      await VolumeButtonListener.instance.resume();
+    }
+  }
+  ```
+
+  Equivalently, from a terminal:
+
+  ```sh
+  echo "options intel_hid enable_5_button_array=1" | sudo tee /etc/modprobe.d/intel-hid.conf
+  echo 'SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"' \
+    | sudo tee /etc/udev/rules.d/60-volume-button-listener.rules
+  sudo modprobe -r intel_hid && sudo modprobe intel_hid
+  sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input
+  ```
+
+  Please also report the model to `platform-driver-x86@vger.kernel.org` so it can be added to the allowlist. This is a kernel driver limitation, not a plugin one.
+
+Reading and setting system volume uses ALSA through `flutter_volume_controller` and works on both X11 and Wayland.
 
 ## Installation
 
