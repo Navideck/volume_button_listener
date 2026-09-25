@@ -22,6 +22,12 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     private var originalCallback: Callback? = null
     private var showVolumeUi: Boolean = false
 
+    // Set when the activity is detached for a configuration change while the
+    // listener was active, so it can be re-installed on reattach. Without this
+    // the interceptor is torn down on reattach and volume keys stop reaching
+    // the app for the rest of the session.
+    private var restartListenerOnReattach: Boolean = false
+
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = flutterPluginBinding.applicationContext
         VolumeButtonListenerPlatformChannel.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -129,6 +135,12 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        // Re-install the interceptor after an activity recreation caused by a
+        // configuration change if it was listening before the detach.
+        if (restartListenerOnReattach) {
+            restartListenerOnReattach = false
+            startListener()
+        }
     }
 
     override fun onDetachedFromActivity() {
@@ -141,6 +153,7 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        restartListenerOnReattach = isListening()
         onDetachedFromActivity()
     }
 }
