@@ -1,22 +1,10 @@
-## 0.5.1
-* Android: re-install the volume-button listener after the activity is recreated
-  for a configuration change, so volume keys keep working.
-
-## 0.5.0
+## 0.4.0
 * Double and triple press support via `addButtonMultiPressedListener`, with a
   configurable `multiPressWindow` (default `300ms`).
-
-## 0.4.1
-* Add Linux support for volume button press/release/long-press/multi-press events with no end-user setup:
-  * Non-Wayland X11 sessions use a global key grab (consumes the key)
-  * Wayland sessions with a dedicated volume-key device use an exclusive `EVIOCGRAB`, suppressing the system volume change and OSD
-    * Auto-repeat reported as repeated press/release pairs (for example the Intel HID 5-button array) is coalesced so long press is detected
-  * Other sessions (for example GNOME Wayland) fall back to observing system volume changes
-* Add opt-in `LinuxVolumeButtonSetup` helper that enables the `intel-hid` 5-button array (side volume buttons on some detachable tablets) and installs the input-device access rule via a single `pkexec` authentication prompt
-
-## 0.4.0
-* Add double and triple press support via `addButtonMultiPressedListener`
-* Add configurable `multiPressWindow` (default `300ms`)
+* Add Linux support for volume button events (press, release, long-press, multi-press) on X11 and Wayland.
+* Add opt-in `LinuxVolumeButtonSetup` helper for tablet and detachable devices.
+* Android: re-install the volume-button listener after the activity is recreated
+  for a configuration change, so volume keys keep working.
 
 ## 0.3.2
 * Fix iOS builds using Swift Package Manager
