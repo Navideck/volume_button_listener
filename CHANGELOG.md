@@ -1,3 +1,8 @@
+## 0.4.1
+* Android: re-install the volume-button listener after any activity recreation,
+  not only configuration changes, so volume keys keep working when the host
+  activity is recreated.
+
 ## 0.4.0
 * Double and triple press support via `addButtonMultiPressedListener`, with a
   configurable `multiPressWindow` (default `300ms`).
