@@ -20,6 +20,12 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     private var activity: Activity? = null
     private var applicationContext: Context? = null
     private var originalCallback: Callback? = null
+
+    // The interceptor this plugin installed as `window.callback`. Tracked
+    // separately from `originalCallback` so `isListening()` can tell whether the
+    // window still delegates to us, and `stopListener()` can avoid clobbering a
+    // callback someone else installed in the meantime.
+    private var interceptorCallback: Callback? = null
     private var showVolumeUi: Boolean = false
 
     // Set when the activity is detached while the listener was active, so it
@@ -45,55 +51,59 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         val currentActivity = activity
             ?: throw Exception("Activity is null. VolumeButtonListenerPlugin requires a foreground activity.")
 
-        if (originalCallback != null) {
+        // Drop any previous interceptor first so wrappers never stack.
+        if (interceptorCallback != null) {
             stopListener()
         }
 
-        originalCallback = currentActivity.window.callback
+        val delegate = currentActivity.window.callback
+        originalCallback = delegate
 
-        currentActivity.window.callback =
-            object : Callback by originalCallback as Callback {
-                override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
-                    if (event?.action == KeyEvent.ACTION_DOWN || event?.action == KeyEvent.ACTION_UP) {
-                        when (event.keyCode) {
-                            KeyEvent.KEYCODE_VOLUME_UP -> {
-                                mainThreadHandler?.post {
-                                    if (event?.action == KeyEvent.ACTION_DOWN) {
-                                        callbackChannel?.onVolumeButtonPressed(true) {}
-                                    } else {
-                                        callbackChannel?.onVolumeButtonReleased(true) {}
-                                    }
+        val interceptor = object : Callback by delegate {
+            override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
+                if (event?.action == KeyEvent.ACTION_DOWN || event?.action == KeyEvent.ACTION_UP) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_VOLUME_UP -> {
+                            mainThreadHandler?.post {
+                                if (event.action == KeyEvent.ACTION_DOWN) {
+                                    callbackChannel?.onVolumeButtonPressed(true) {}
+                                } else {
+                                    callbackChannel?.onVolumeButtonReleased(true) {}
                                 }
-                                return !showVolumeUi
                             }
+                            return !showVolumeUi
+                        }
 
-                            KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                                mainThreadHandler?.post {
-                                    if (event?.action == KeyEvent.ACTION_DOWN) {
-                                        callbackChannel?.onVolumeButtonPressed(false) {}
-                                    } else {
-                                        callbackChannel?.onVolumeButtonReleased(false) {}
-                                    }
+                        KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                            mainThreadHandler?.post {
+                                if (event.action == KeyEvent.ACTION_DOWN) {
+                                    callbackChannel?.onVolumeButtonPressed(false) {}
+                                } else {
+                                    callbackChannel?.onVolumeButtonReleased(false) {}
                                 }
-                                return !showVolumeUi
                             }
+                            return !showVolumeUi
                         }
                     }
-                    return originalCallback?.dispatchKeyEvent(event) ?: false
                 }
-
-                override fun onPointerCaptureChanged(hasCapture: Boolean) {
-                    super.onPointerCaptureChanged(hasCapture)
-                }
-
-                override fun onProvideKeyboardShortcuts(
-                    data: List<KeyboardShortcutGroup?>?,
-                    menu: Menu?,
-                    deviceId: Int,
-                ) {
-                    super.onProvideKeyboardShortcuts(data, menu, deviceId)
-                }
+                return delegate.dispatchKeyEvent(event)
             }
+
+            override fun onPointerCaptureChanged(hasCapture: Boolean) {
+                super.onPointerCaptureChanged(hasCapture)
+            }
+
+            override fun onProvideKeyboardShortcuts(
+                data: List<KeyboardShortcutGroup?>?,
+                menu: Menu?,
+                deviceId: Int,
+            ) {
+                super.onProvideKeyboardShortcuts(data, menu, deviceId)
+            }
+        }
+
+        interceptorCallback = interceptor
+        currentActivity.window.callback = interceptor
     }
 
     override fun setShowVolumeUi(showVolumeUi: Boolean) {
@@ -101,14 +111,31 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun stopListener() {
-        if (originalCallback != null && activity != null) {
-            activity?.window?.callback = originalCallback
-            originalCallback = null
+        val interceptor = interceptorCallback
+        val currentActivity = activity
+        val original = originalCallback
+        // Only restore the previous callback if the window still delegates to
+        // us; if something else replaced it, leave that in place.
+        if (interceptor != null && currentActivity != null && original != null &&
+            currentActivity.window.callback === interceptor
+        ) {
+            currentActivity.window.callback = original
         }
+        // Clear state even when the activity is already gone, otherwise
+        // isListening() would report a dead interceptor forever.
+        interceptorCallback = null
+        originalCallback = null
     }
 
     override fun isListening(): Boolean {
-        return originalCallback != null
+        // The window callback is the only thing that actually receives key
+        // events, so report listening only while the window still delegates to
+        // the interceptor we installed. A plain `originalCallback != null` check
+        // would keep returning true after the host replaced `window.callback`
+        // (e.g. Android XR moving input focus between surfaces/spaces), leaving
+        // callers with an interceptor that never fires.
+        val interceptor = interceptorCallback ?: return false
+        return activity?.window?.callback === interceptor
     }
 
     override fun getVolume(): Double {
@@ -145,8 +172,10 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     override fun onDetachedFromActivity() {
         // Capture this for every detach, not just configuration changes: a
         // plain destroy/recreate of the host activity otherwise drops the
-        // interceptor, so volume keys never reach the app again.
-        if (isListening()) {
+        // interceptor, so volume keys never reach the app again. Use the
+        // interceptor field rather than isListening(), which is false whenever
+        // the host already replaced the window callback.
+        if (interceptorCallback != null) {
             restartListenerOnReattach = true
         }
         stopListener()
