@@ -1,14 +1,7 @@
 ## 0.4.1
-* Android: re-install the volume-button listener after any activity recreation,
-  not only configuration changes, so volume keys keep working when the host
-  activity is recreated.
-* Android: `isListening` now reports `true` only while the window still delegates
-  to the plugin's interceptor. The old check (`originalCallback != null`) kept
-  reporting a live listener after the host replaced `window.callback`, so
-  callers never re-installed it.
-* Android: `stopListener` always clears its state and only restores the previous
-  window callback while the window still delegates to the interceptor, so it can
-  no longer clobber a callback someone else installed.
+* Android: keep listening across activity recreation, and make `isListening`
+  reflect whether the window still delegates to the plugin, so a replaced
+  callback is re-installed instead of silently going dead.
 
 ## 0.4.0
 * Double and triple press support via `addButtonMultiPressedListener`, with a
