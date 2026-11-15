@@ -1,6 +1,6 @@
 # Volume Button Listener
 
-A Flutter plugin for hardware volume button events and system volume control on mobile and desktop.
+A Flutter plugin for hardware volume button events and system volume control on mobile, desktop, and Meta Quest.
 
 Listen for volume **up** and **down** press and release events, optionally hide the native volume HUD, and read or set the current system volume level.
 
@@ -19,7 +19,7 @@ Listen for volume **up** and **down** press and release events, optionally hide 
 
 Legend: ✔️ supported · ⚠️ supported with caveats · ❌ not supported.
 
-|                                     | Android | iOS | macOS | Windows |   Linux    | Web |
+|                                     | Android<br/>(incl. Quest) | iOS | macOS | Windows |   Linux    | Web |
 | :---------------------------------- | :-----: | :-: | :---: | :-----: | :--------: | :-: |
 | addButtonPressedListener            |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
 | addButtonReleasedListener           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ⚠️     | ❌  |
@@ -31,6 +31,7 @@ Legend: ✔️ supported · ⚠️ supported with caveats · ❌ not supported.
 | setVolume                           |   ✔️    | ✔️  |  ✔️   |   ✔️    |     ✔️     | ❌  |
 
 - **Android** button events are only delivered while the app has a focused activity (the plugin throws if there is none), so listening does not work in the background.
+- **Meta Quest** headsets run Horizon OS (Android-based), so the plugin uses the Android implementation. See the [Meta Quest caveat](#meta-quest-horizon-os-caveat) before relying on button events there.
 - **iOS** multi-press is best-effort (see the iOS caveat below).
 - **Linux** button capture depends on the session (see the Linux caveat below); `getVolume`/`setVolume` use ALSA through `flutter_volume_controller`.
 
@@ -91,6 +92,34 @@ Additional notes:
   Please also report the model to `platform-driver-x86@vger.kernel.org` so it can be added to the allowlist. This is a kernel driver limitation, not a plugin one.
 
 Reading and setting system volume uses ALSA through `flutter_volume_controller` and works on both X11 and Wayland.
+
+### Meta Quest (Horizon OS) caveat
+
+Meta Quest headsets run Horizon OS, which is built on Android. A Flutter app runs there as a regular Android app displayed in a resizable 2D panel, so the plugin uses the Android implementation and no Dart code changes are needed. A few things behave differently from a phone:
+
+- **Volume buttons are system input first.** Horizon OS reserves the physical volume buttons as a universal "click" fallback when hand or controller selection is unavailable, and it draws its own volume overlay. The plugin receives `KEYCODE_VOLUME_UP` / `KEYCODE_VOLUME_DOWN` only when the OS dispatches them to the focused panel, so button events are best-effort and may not arrive in every input configuration or Horizon OS version. Verify on the headset before depending on them.
+- **`showVolumeUI` cannot hide the Horizon OS overlay.** The system shows its volume UI regardless of whether the app consumes the key event. Setting `showVolumeUI = false` still reports the event, but it does not guarantee that the system volume is unchanged or that the overlay is suppressed.
+- **Panel focus is required.** As on Android, no events are delivered while the panel does not have input focus, and the plugin throws if it has no activity. There is no background listening.
+- **Volume read/write uses the app-and-media stream.** `getVolume` and `setVolume` map to `AudioManager.STREAM_MUSIC`, which Horizon OS exposes as **App & media volume** in the system volume mixer. Call volume is a separate stream and is not touched.
+- **No extra permissions are required** for button events or for reading and setting the media volume.
+
+To make a Flutter app display properly as a Quest panel, declare the supported devices and a default window size in `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<application>
+  <meta-data
+      android:name="com.oculus.supportedDevices"
+      android:value="quest2|questpro|quest3|quest3s|vrglasses" />
+  <activity android:name=".MainActivity" android:exported="true">
+    <layout
+        android:defaultWidth="1024dp"
+        android:defaultHeight="640dp" />
+    <!-- ...existing intent-filter... -->
+  </activity>
+</application>
+```
+
+Build the APK with the normal Flutter Android workflow, then test it in the Meta Spatial Simulator (`metavr ssim start`) or sideload it to a headset in developer mode and launch it with `metavr app launch <package>`. Only the headset shows real hardware volume-button behaviour.
 
 ## Installation
 

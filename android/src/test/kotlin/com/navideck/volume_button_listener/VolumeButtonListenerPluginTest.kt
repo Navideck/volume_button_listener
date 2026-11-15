@@ -3,6 +3,7 @@ package com.navideck.volume_button_listener
 import android.app.Activity
 import android.view.Window
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.PluginRegistry.WindowFocusChangedListener
 import org.mockito.Mockito
 import org.mockito.Mockito.`when`
 import kotlin.test.Test
@@ -10,10 +11,11 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /*
- * Exercises the Android interceptor bookkeeping behind [isListening] and
- * [stopListener] without an emulator. The window callback is the only thing that
- * actually receives key events, so "listening" must mean "the window still
- * delegates to our interceptor", not merely "we once installed one".
+ * Exercises the Android interceptor bookkeeping behind [isListening],
+ * [stopListener], and focus recovery without an emulator. The window callback
+ * is the only thing that actually receives key events, so "listening" must mean
+ * "the window still delegates to our interceptor", not merely "we once
+ * installed one".
  *
  * Run with `./gradlew testDebugUnitTest` from `example/android/`.
  */
@@ -24,7 +26,9 @@ internal class VolumeButtonListenerPluginTest {
         val activity: Activity = Mockito.mock(Activity::class.java)
         val window: Window = Mockito.mock(Window::class.java)
         val delegate: Window.Callback = Mockito.mock(Window.Callback::class.java)
+        val binding: ActivityPluginBinding = Mockito.mock(ActivityPluginBinding::class.java)
         var installed: Window.Callback? = null
+        var focusListener: WindowFocusChangedListener? = null
 
         init {
             `when`(activity.window).thenReturn(window)
@@ -33,11 +37,15 @@ internal class VolumeButtonListenerPluginTest {
                 installed = invocation.getArgument(0) as Window.Callback
                 null
             }.`when`(window).setCallback(Mockito.any(Window.Callback::class.java))
+            `when`(binding.activity).thenReturn(activity)
+            Mockito.doAnswer { invocation ->
+                focusListener = invocation.getArgument(0) as WindowFocusChangedListener
+                null
+            }.`when`(binding)
+                .addOnWindowFocusChangedListener(Mockito.any(WindowFocusChangedListener::class.java))
         }
 
         fun plugin(): VolumeButtonListenerPlugin {
-            val binding = Mockito.mock(ActivityPluginBinding::class.java)
-            `when`(binding.activity).thenReturn(activity)
             return VolumeButtonListenerPlugin().also { it.onAttachedToActivity(binding) }
         }
 
@@ -49,6 +57,11 @@ internal class VolumeButtonListenerPluginTest {
         /** Makes `window.callback` report whatever was installed. */
         fun acceptInstalled() {
             installed?.let { `when`(window.callback).thenReturn(it) }
+        }
+
+        /** Delivers a window focus change like the host activity would. */
+        fun focus(hasFocus: Boolean) {
+            focusListener?.onWindowFocusChanged(hasFocus)
         }
     }
 
@@ -82,6 +95,62 @@ internal class VolumeButtonListenerPluginTest {
         fixture.clobber(Mockito.mock(Window.Callback::class.java))
 
         assertFalse(plugin.isListening())
+    }
+
+    @Test
+    fun focusGain_reinstallsInterceptorAfterHostReplacedCallback() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.startListener()
+        fixture.acceptInstalled()
+        fixture.clobber(Mockito.mock(Window.Callback::class.java))
+        assertFalse(plugin.isListening())
+
+        // Focus returns to the panel (Horizon OS / Android XR): the plugin must
+        // take the window callback again instead of staying dead.
+        fixture.focus(true)
+        fixture.acceptInstalled()
+
+        assertTrue(plugin.isListening())
+    }
+
+    @Test
+    fun focusGain_doesNotStartListeningWhenNeverStarted() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        fixture.focus(true)
+
+        assertFalse(plugin.isListening())
+        Mockito.verify(fixture.window, Mockito.never())
+            .setCallback(Mockito.any(Window.Callback::class.java))
+    }
+
+    @Test
+    fun focusGain_doesNothingAfterStopListener() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.startListener()
+        fixture.acceptInstalled()
+        plugin.stopListener()
+
+        fixture.focus(true)
+
+        assertFalse(plugin.isListening())
+    }
+
+    @Test
+    fun detach_removesWindowFocusListener() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.onDetachedFromActivity()
+
+        Mockito.verify(fixture.binding).removeOnWindowFocusChangedListener(
+            Mockito.any(WindowFocusChangedListener::class.java),
+        )
     }
 
     @Test

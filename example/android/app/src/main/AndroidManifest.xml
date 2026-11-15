@@ -3,6 +3,11 @@
         android:label="volume_button_listener_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Declares the Meta Quest models this example supports. Horizon OS
+             ignores it on other Android devices. -->
+        <meta-data
+            android:name="com.oculus.supportedDevices"
+            android:value="quest2|questpro|quest3|quest3s|vrglasses" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -20,6 +25,11 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Default size of the resizable panel on Meta Quest. It has no
+                 effect on devices that show the activity full screen. -->
+            <layout
+                android:defaultWidth="1024dp"
+                android:defaultHeight="640dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

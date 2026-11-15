@@ -1,3 +1,12 @@
+## 0.4.2
+* Android: recover the volume-button listener when window focus returns after the
+  host replaced the window callback, so 2D panels on Meta Quest (Horizon OS) and
+  Android XR keep receiving button events when focus moves between spaces.
+* Meta Quest (Horizon OS): document that the Android implementation is used in
+  a 2D panel, that volume-button events are best-effort because the OS owns the
+  buttons and its volume overlay, and which manifest entries a Quest build needs.
+* Example: declare supported Meta Quest devices and a default panel size.
+
 ## 0.4.1
 * Android: keep listening across activity recreation, and make `isListening`
   reflect whether the window still delegates to the plugin, so a replaced

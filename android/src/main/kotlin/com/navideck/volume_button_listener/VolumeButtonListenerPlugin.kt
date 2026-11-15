@@ -8,6 +8,7 @@ import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.PluginRegistry.WindowFocusChangedListener
 import android.view.KeyEvent
 import android.view.KeyboardShortcutGroup
 import android.view.Menu
@@ -32,6 +33,12 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     // can be re-installed on reattach. Without this the interceptor is torn
     // down and volume keys stop reaching the app for the rest of the session.
     private var restartListenerOnReattach: Boolean = false
+
+    // Window focus is the earliest signal that this activity can receive key
+    // events again. Used to recover when the host replaces `window.callback`
+    // while the activity stays alive.
+    private var activityBinding: ActivityPluginBinding? = null
+    private var windowFocusListener: WindowFocusChangedListener? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = flutterPluginBinding.applicationContext
@@ -159,8 +166,36 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         )
     }
 
+    /**
+     * Re-installs the interceptor when the window stopped delegating to it but
+     * the plugin is still supposed to be listening. Called on window focus
+     * gain, which is when a host that replaced `window.callback` is ready to
+     * deliver key events again.
+     */
+    private fun restartListenerIfReplaced() {
+        if (interceptorCallback == null) return
+        if (activity == null) return
+        if (isListening()) return
+        startListener()
+    }
+
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        // Defensive: drop a listener left from a previous binding so repeated
+        // attach calls never stack callbacks.
+        windowFocusListener?.let { old -> activityBinding?.removeOnWindowFocusChangedListener(old) }
         activity = binding.activity
+        activityBinding = binding
+        // Focus can move between surfaces or spaces without recreating the
+        // activity (2D panels on Horizon OS and Android XR both do this) and
+        // give `window.callback` back to the host. Re-install the interceptor
+        // when focus returns so volume keys reach the app again.
+        val focusListener = WindowFocusChangedListener { hasFocus ->
+            if (hasFocus) {
+                restartListenerIfReplaced()
+            }
+        }
+        windowFocusListener = focusListener
+        binding.addOnWindowFocusChangedListener(focusListener)
         // Re-install the interceptor after any activity recreation if it was
         // listening before the detach.
         if (restartListenerOnReattach) {
@@ -170,6 +205,11 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun onDetachedFromActivity() {
+        windowFocusListener?.let { listener ->
+            activityBinding?.removeOnWindowFocusChangedListener(listener)
+        }
+        windowFocusListener = null
+        activityBinding = null
         // Capture this for every detach, not just configuration changes: a
         // plain destroy/recreate of the host activity otherwise drops the
         // interceptor, so volume keys never reach the app again. Use the
