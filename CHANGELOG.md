@@ -1,4 +1,4 @@
-## 0.4.2
+## 0.5.0
 * Add `AndroidListeningMode` (`keyEvents` and `volumeEvents`), allowing devices like Meta Quest (Horizon OS) to capture volume buttons via system volume events when key events are intercepted by the OS compositor.
 * `volumeEvents` mode suspends monitoring while the panel does not have input focus, so it does not report or revert volume changes made by other apps and the system.
 * `volumeEvents` mode keeps `getVolume`/`setVolume` coherent: an app-initiated volume change updates the revert baseline and is not reported as a button press.
