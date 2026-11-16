@@ -28,6 +28,8 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     // callback someone else installed in the meantime.
     private var interceptorCallback: Callback? = null
     private var showVolumeUi: Boolean = false
+    private var useVolumeEvents: Boolean = false
+    private var volumeButtonListener: VolumeButtonListener? = null
 
     // Set when the activity is detached while the listener was active, so it
     // can be re-installed on reattach. Without this the interceptor is torn
@@ -54,7 +56,45 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         applicationContext = null
     }
 
+    override fun setAndroidListeningMode(useVolumeEvents: Boolean) {
+        android.util.Log.d("VolumeButtonKit", "setAndroidListeningMode(useVolumeEvents=$useVolumeEvents), current=$this.useVolumeEvents")
+        if (this.useVolumeEvents == useVolumeEvents) return
+        val wasActive = interceptorCallback != null || volumeButtonListener != null
+        if (wasActive) {
+            stopListener()
+        }
+        this.useVolumeEvents = useVolumeEvents
+        if (wasActive) {
+            startListener()
+        }
+    }
+
     override fun startListener() {
+        android.util.Log.d("VolumeButtonKit", "startListener() useVolumeEvents=$useVolumeEvents")
+        if (useVolumeEvents) {
+            if (volumeButtonListener != null) {
+                stopListener()
+            }
+            val ctx = applicationContext ?: activity
+                ?: throw Exception("Context is null. VolumeButtonListenerPlugin requires an application context or activity.")
+            val kitListener = VolumeButtonListener(ctx, mainThreadHandler).apply {
+                this.showsVolumeUi = this@VolumeButtonListenerPlugin.showVolumeUi
+                this.volumeButtonPressed = { direction ->
+                    mainThreadHandler?.post {
+                        callbackChannel?.onVolumeButtonPressed(direction == VolumeButtonDirection.UP) {}
+                    }
+                }
+                this.volumeButtonReleased = { direction ->
+                    mainThreadHandler?.post {
+                        callbackChannel?.onVolumeButtonReleased(direction == VolumeButtonDirection.UP) {}
+                    }
+                }
+            }
+            volumeButtonListener = kitListener
+            kitListener.startListening()
+            return
+        }
+
         val currentActivity = activity
             ?: throw Exception("Activity is null. VolumeButtonListenerPlugin requires a foreground activity.")
 
@@ -115,9 +155,13 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
 
     override fun setShowVolumeUi(showVolumeUi: Boolean) {
         this.showVolumeUi = showVolumeUi
+        volumeButtonListener?.showsVolumeUi = showVolumeUi
     }
 
     override fun stopListener() {
+        volumeButtonListener?.stopListening()
+        volumeButtonListener = null
+
         val interceptor = interceptorCallback
         val currentActivity = activity
         val original = originalCallback
@@ -135,6 +179,9 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun isListening(): Boolean {
+        if (useVolumeEvents) {
+            return volumeButtonListener?.isListening() ?: false
+        }
         // The window callback is the only thing that actually receives key
         // events, so report listening only while the window still delegates to
         // the interceptor we installed. A plain `originalCallback != null` check
@@ -173,6 +220,7 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
      * deliver key events again.
      */
     private fun restartListenerIfReplaced() {
+        if (useVolumeEvents) return
         if (interceptorCallback == null) return
         if (activity == null) return
         if (isListening()) return
@@ -215,7 +263,7 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         // interceptor, so volume keys never reach the app again. Use the
         // interceptor field rather than isListening(), which is false whenever
         // the host already replaced the window callback.
-        if (interceptorCallback != null) {
+        if (interceptorCallback != null || volumeButtonListener != null) {
             restartListenerOnReattach = true
         }
         stopListener()

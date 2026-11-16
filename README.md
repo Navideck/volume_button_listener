@@ -95,11 +95,18 @@ Reading and setting system volume uses ALSA through `flutter_volume_controller` 
 
 ### Meta Quest (Horizon OS) caveat
 
-Meta Quest headsets run Horizon OS, which is built on Android. A Flutter app runs there as a regular Android app displayed in a resizable 2D panel, so the plugin uses the Android implementation and no Dart code changes are needed. A few things behave differently from a phone:
+Meta Quest headsets run Horizon OS, which is built on Android. A Flutter app runs there as a regular Android app displayed in a resizable 2D panel. Because Horizon OS consumes hardware volume button key events at the system compositor level, set `androidListeningMode` to `AndroidListeningMode.volumeEvents` to capture button presses via system volume changes:
 
-- **Volume buttons are system input first.** Horizon OS reserves the physical volume buttons as a universal "click" fallback when hand or controller selection is unavailable, and it draws its own volume overlay. The plugin receives `KEYCODE_VOLUME_UP` / `KEYCODE_VOLUME_DOWN` only when the OS dispatches them to the focused panel, so button events are best-effort and may not arrive in every input configuration or Horizon OS version. Verify on the headset before depending on them.
-- **`showVolumeUI` cannot hide the Horizon OS overlay.** The system shows its volume UI regardless of whether the app consumes the key event. Setting `showVolumeUI = false` still reports the event, but it does not guarantee that the system volume is unchanged or that the overlay is suppressed.
-- **Panel focus is required.** As on Android, no events are delivered while the panel does not have input focus, and the plugin throws if it has no activity. There is no background listening.
+```dart
+// Configure to use volume events (recommended on Meta Quest / Horizon OS):
+VolumeButtonListener.instance.androidListeningMode =
+    AndroidListeningMode.volumeEvents;
+```
+
+A few things behave differently from a standard phone:
+
+- **Use `AndroidListeningMode.volumeEvents` on Quest.** Horizon OS reserves physical volume buttons as a system-level input fallback and does not pass `KEYCODE_VOLUME_UP` / `KEYCODE_VOLUME_DOWN` key events to the application window. In `volumeEvents` mode, button presses and releases are inferred from system audio stream changes.
+- **`showVolumeUI = false` reverts volume.** When `showVolumeUI` is `false`, the plugin automatically reverts volume changes back to the previous level to prevent volume drift while listening.
 - **Volume read/write uses the app-and-media stream.** `getVolume` and `setVolume` map to `AudioManager.STREAM_MUSIC`, which Horizon OS exposes as **App & media volume** in the system volume mixer. Call volume is a separate stream and is not touched.
 - **No extra permissions are required** for button events or for reading and setting the media volume.
 

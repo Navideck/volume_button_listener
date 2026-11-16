@@ -99,6 +99,7 @@ protocol VolumeButtonListenerPlatformChannel {
   func isListening() throws -> Bool
   func getVolume() throws -> Double
   func setVolume(volume: Double) throws
+  func setAndroidListeningMode(useVolumeEvents: Bool) throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -188,6 +189,21 @@ class VolumeButtonListenerPlatformChannelSetup {
       }
     } else {
       setVolumeChannel.setMessageHandler(nil)
+    }
+    let setAndroidListeningModeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.volume_button_listener.VolumeButtonListenerPlatformChannel.setAndroidListeningMode\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setAndroidListeningModeChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let useVolumeEventsArg = args[0] as! Bool
+        do {
+          try api.setAndroidListeningMode(useVolumeEvents: useVolumeEventsArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setAndroidListeningModeChannel.setMessageHandler(nil)
     }
   }
 }

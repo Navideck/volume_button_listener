@@ -15,6 +15,8 @@ abstract class VolumeButtonListenerPlatformChannel {
   double getVolume();
 
   void setVolume(double volume);
+
+  void setAndroidListeningMode(bool useVolumeEvents);
 }
 
 /// Native -> Flutter

@@ -1,6 +1,11 @@
 package com.navideck.volume_button_listener
 
 import android.app.Activity
+import android.content.ContentResolver
+import android.content.Context
+import android.database.ContentObserver
+import android.media.AudioManager
+import android.provider.Settings
 import android.view.Window
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.PluginRegistry.WindowFocusChangedListener
@@ -27,12 +32,18 @@ internal class VolumeButtonListenerPluginTest {
         val window: Window = Mockito.mock(Window::class.java)
         val delegate: Window.Callback = Mockito.mock(Window.Callback::class.java)
         val binding: ActivityPluginBinding = Mockito.mock(ActivityPluginBinding::class.java)
+        val audioManager: AudioManager = Mockito.mock(AudioManager::class.java)
+        val contentResolver: ContentResolver = Mockito.mock(ContentResolver::class.java)
         var installed: Window.Callback? = null
         var focusListener: WindowFocusChangedListener? = null
 
         init {
             `when`(activity.window).thenReturn(window)
             `when`(window.callback).thenReturn(delegate)
+            `when`(activity.getSystemService(Context.AUDIO_SERVICE)).thenReturn(audioManager)
+            `when`(activity.contentResolver).thenReturn(contentResolver)
+            `when`(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)).thenReturn(5)
+            `when`(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)).thenReturn(15)
             Mockito.doAnswer { invocation ->
                 installed = invocation.getArgument(0) as Window.Callback
                 null
@@ -180,5 +191,26 @@ internal class VolumeButtonListenerPluginTest {
 
         Mockito.verify(fixture.window).setCallback(fixture.delegate)
         assertFalse(plugin.isListening())
+    }
+
+    @Test
+    fun volumeEvents_startsListeningWithoutModifyingWindowCallback() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.setAndroidListeningMode(true)
+        plugin.startListener()
+
+        assertTrue(plugin.isListening())
+        Mockito.verify(fixture.window, Mockito.never()).setCallback(Mockito.any(Window.Callback::class.java))
+        Mockito.verify(fixture.contentResolver).registerContentObserver(
+            Mockito.eq(Settings.System.CONTENT_URI),
+            Mockito.eq(true),
+            Mockito.any(ContentObserver::class.java),
+        )
+
+        plugin.stopListener()
+        assertFalse(plugin.isListening())
+        Mockito.verify(fixture.contentResolver).unregisterContentObserver(Mockito.any(ContentObserver::class.java))
     }
 }

@@ -1,7 +1,9 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
+import 'package:volume_button_listener/src/volume_change_monitor.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
 
 class TestVolumeButtonListener with VolumeButtonListenerInterface {
@@ -38,6 +40,8 @@ class TestVolumeButtonListener with VolumeButtonListenerInterface {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('VolumeButtonListenerInterface Long Press Tests', () {
     late TestVolumeButtonListener listener;
 
@@ -400,6 +404,178 @@ void main() {
         expect(multiPressedEvents, isEmpty);
         expect(pressedEvents, isEmpty);
         expect(releasedEvents, isEmpty);
+      });
+    });
+  });
+
+  group('AndroidListeningMode Tests', () {
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(
+        'dev.flutter.pigeon.volume_button_listener.VolumeButtonListenerPlatformChannel.setAndroidListeningMode',
+        (message) async => const StandardMessageCodec().encodeMessage(<Object?>[null]),
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(
+        'dev.flutter.pigeon.volume_button_listener.VolumeButtonListenerPlatformChannel.isListening',
+        (message) async => const StandardMessageCodec().encodeMessage(<Object?>[false]),
+      );
+    });
+
+    test('Default mode is keyEvents', () {
+      expect(
+        VolumeButtonListener.instance.androidListeningMode,
+        equals(AndroidListeningMode.keyEvents),
+      );
+    });
+
+    test('Can switch to volumeEvents mode and back', () {
+      final listener = VolumeButtonListener.instance;
+      listener.androidListeningMode = AndroidListeningMode.volumeEvents;
+      expect(
+        listener.androidListeningMode,
+        equals(AndroidListeningMode.volumeEvents),
+      );
+
+      listener.androidListeningMode = AndroidListeningMode.keyEvents;
+      expect(
+        listener.androidListeningMode,
+        equals(AndroidListeningMode.keyEvents),
+      );
+    });
+  });
+
+  group('VolumeChangeMonitor Tests', () {
+    test('Detects volume increase as button up and fires release after delay', () {
+      fakeAsync((async) {
+        final pressed = <bool>[];
+        final released = <bool>[];
+        final monitor = VolumeChangeMonitor(
+          onPressed: (isUp) => pressed.add(isUp),
+          onReleased: (isUp) => released.add(isUp),
+          releaseDelay: const Duration(milliseconds: 100),
+        );
+
+        // First change establishes baseline
+        monitor.onVolumeChanged(0.5);
+        expect(pressed, isEmpty);
+        expect(released, isEmpty);
+
+        // Volume goes up
+        monitor.onVolumeChanged(0.6);
+        expect(pressed, [true]);
+        expect(released, isEmpty);
+
+        // Before release delay elapses
+        async.elapse(const Duration(milliseconds: 50));
+        expect(released, isEmpty);
+
+        // After release delay elapses
+        async.elapse(const Duration(milliseconds: 50));
+        expect(released, [true]);
+      });
+    });
+
+    test('Detects volume decrease as button down and fires release after delay', () {
+      fakeAsync((async) {
+        final pressed = <bool>[];
+        final released = <bool>[];
+        final monitor = VolumeChangeMonitor(
+          onPressed: (isUp) => pressed.add(isUp),
+          onReleased: (isUp) => released.add(isUp),
+          releaseDelay: const Duration(milliseconds: 100),
+        );
+
+        monitor.onVolumeChanged(0.5);
+        monitor.onVolumeChanged(0.4);
+        expect(pressed, [false]);
+        expect(released, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 100));
+        expect(released, [false]);
+      });
+    });
+
+    test('Ignores volume changes smaller than threshold', () {
+      fakeAsync((async) {
+        final pressed = <bool>[];
+        final released = <bool>[];
+        final monitor = VolumeChangeMonitor(
+          onPressed: (isUp) => pressed.add(isUp),
+          onReleased: (isUp) => released.add(isUp),
+          changeThreshold: 0.01,
+        );
+
+        monitor.onVolumeChanged(0.5);
+        monitor.onVolumeChanged(0.505); // delta 0.005 < 0.01
+        expect(pressed, isEmpty);
+        expect(released, isEmpty);
+      });
+    });
+
+    test('Debounces consecutive volume steps in same direction', () {
+      fakeAsync((async) {
+        final pressed = <bool>[];
+        final released = <bool>[];
+        final monitor = VolumeChangeMonitor(
+          onPressed: (isUp) => pressed.add(isUp),
+          onReleased: (isUp) => released.add(isUp),
+          releaseDelay: const Duration(milliseconds: 100),
+        );
+
+        monitor.onVolumeChanged(0.5);
+        monitor.onVolumeChanged(0.6);
+        expect(pressed, [true]);
+
+        // Another step before 100ms
+        async.elapse(const Duration(milliseconds: 60));
+        monitor.onVolumeChanged(0.7);
+
+        // 60ms after second step (total 120ms from first step) - should not have released yet
+        async.elapse(const Duration(milliseconds: 60));
+        expect(released, isEmpty);
+
+        // 40ms more (100ms from second step) -> release fires
+        async.elapse(const Duration(milliseconds: 40));
+        expect(released, [true]);
+      });
+    });
+
+    test('ignoreChangesFor ignores changes during duration', () {
+      fakeAsync((async) {
+        final pressed = <bool>[];
+        final monitor = VolumeChangeMonitor(
+          onPressed: (isUp) => pressed.add(isUp),
+          onReleased: (_) {},
+        );
+
+        monitor.onVolumeChanged(0.5);
+        monitor.ignoreChangesFor(const Duration(milliseconds: 200));
+
+        monitor.onVolumeChanged(0.8);
+        expect(pressed, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 250));
+        monitor.onVolumeChanged(0.9);
+        expect(pressed, [true]);
+      });
+    });
+
+    test('Invokes shouldRevertVolume on volume change', () {
+      fakeAsync((async) {
+        bool revertChecked = false;
+        final monitor = VolumeChangeMonitor(
+          onPressed: (_) {},
+          onReleased: (_) {},
+          shouldRevertVolume: () {
+            revertChecked = true;
+            return false;
+          },
+        );
+
+        monitor.onVolumeChanged(0.5);
+        monitor.onVolumeChanged(0.6);
+        expect(revertChecked, isTrue);
       });
     });
   });

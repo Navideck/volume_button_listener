@@ -1,11 +1,13 @@
 ## 0.4.2
+* Add `AndroidListeningMode` (`keyEvents` and `volumeEvents`), allowing devices like Meta Quest (Horizon OS) to capture volume buttons via system volume events when key events are intercepted by the OS compositor.
+* Automatically revert volume changes on Android in `volumeEvents` mode when `showVolumeUI = false` to prevent volume drift.
 * Android: recover the volume-button listener when window focus returns after the
   host replaced the window callback, so 2D panels on Meta Quest (Horizon OS) and
   Android XR keep receiving button events when focus moves between spaces.
 * Meta Quest (Horizon OS): document that the Android implementation is used in
   a 2D panel, that volume-button events are best-effort because the OS owns the
   buttons and its volume overlay, and which manifest entries a Quest build needs.
-* Example: declare supported Meta Quest devices and a default panel size.
+* Example: declare supported Meta Quest devices, default panel size, and add Android listening mode selector.
 
 ## 0.4.1
 * Android: keep listening across activity recreation, and make `isListening`

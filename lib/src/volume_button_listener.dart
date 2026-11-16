@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:volume_button_listener/src/android_listening_mode.dart';
 import 'package:volume_button_listener/src/volume_button_listener.g.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
 
@@ -9,13 +13,38 @@ class VolumeButtonListenerNative extends VolumeButtonListenerCallbackChannel
 
   final _channel = VolumeButtonListenerPlatformChannel();
 
+  AndroidListeningMode _androidListeningMode = AndroidListeningMode.keyEvents;
+
+  AndroidListeningMode get androidListeningMode => _androidListeningMode;
+
+  set androidListeningMode(AndroidListeningMode mode) {
+    if (_androidListeningMode == mode) return;
+    _androidListeningMode = mode;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      unawaited(
+        _channel.setAndroidListeningMode(
+          mode == AndroidListeningMode.volumeEvents,
+        ),
+      );
+    }
+  }
+
   VolumeButtonListenerNative._() {
     VolumeButtonListenerCallbackChannel.setUp(this);
   }
 
   @override
   Future<VolumeButtonBackend> startListener() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await _channel.setAndroidListeningMode(
+        _androidListeningMode == AndroidListeningMode.volumeEvents,
+      );
+    }
     await _channel.startListener();
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        _androidListeningMode == AndroidListeningMode.volumeEvents) {
+      return VolumeButtonBackend.volumeMonitor;
+    }
     return VolumeButtonBackend.native;
   }
 

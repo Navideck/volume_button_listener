@@ -6,14 +6,18 @@ import 'dart:async';
 
 import 'package:async_queue/async_queue.dart';
 import 'package:flutter/foundation.dart';
+import 'package:volume_button_listener/src/android_listening_mode.dart';
 import 'package:volume_button_listener/src/volume_button_listener.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
 import 'package:volume_button_listener/src/volume_button_listener_linux.dart';
 import 'package:volume_button_listener/src/volume_button_notifier.dart';
+export 'package:volume_button_listener/src/android_listening_mode.dart';
 export 'package:volume_button_listener/src/linux_volume_button_setup_stub.dart'
     if (dart.library.io)
         'package:volume_button_listener/src/linux_volume_button_setup.dart';
 export 'package:volume_button_listener/src/volume_button_direction.dart';
+export 'package:volume_button_listener/src/volume_button_listener_interface.dart'
+    show VolumeButtonBackend;
 export 'package:volume_button_listener/src/volume_button_notifier.dart'
     show VolumeButtonListenerCallback, VolumeButtonMultiPressCallback;
 
@@ -38,6 +42,28 @@ class VolumeButtonListener {
 
   bool _isPaused = false;
   final _syncQueue = AsyncQueue.autoStart(allowDuplicate: true);
+
+  AndroidListeningMode _androidListeningMode = AndroidListeningMode.keyEvents;
+
+  /// The listening mode used on Android.
+  ///
+  /// Defaults to [AndroidListeningMode.keyEvents]. On devices such as Meta Quest
+  /// (Horizon OS) where hardware volume key events are consumed by the OS, set
+  /// this to [AndroidListeningMode.volumeEvents] to listen to volume button
+  /// presses via system volume change events.
+  ///
+  /// If changed while listening is active, the listener restarts automatically.
+  AndroidListeningMode get androidListeningMode => _androidListeningMode;
+
+  set androidListeningMode(AndroidListeningMode mode) {
+    if (_androidListeningMode == mode) return;
+    _androidListeningMode = mode;
+    final platform = _platform;
+    if (platform is VolumeButtonListenerNative) {
+      platform.androidListeningMode = mode;
+    }
+    unawaited(_restartListenerIfListening());
+  }
 
   /// Whether the native volume button listener is currently active.
   Future<bool> get isListening => _platform.isListening();
@@ -150,6 +176,17 @@ class VolumeButtonListener {
     await _syncNativeListenerState();
   }
 
+  Future<void> _restartListenerIfListening() {
+    return _syncQueue.addJob((_) async {
+      _platform.cancelLongPressTimers();
+      await _platform.stopListener();
+      if (_platform.hasAnyListeners && !_isPaused) {
+        await _ensureVolumeAwayFromBoundsIfNeeded();
+        await _platform.startListener();
+      }
+    });
+  }
+
   Future<void> _syncNativeListenerState() {
     return _syncQueue.addJob((_) async {
       final nativeListening = await isListening;
@@ -164,12 +201,15 @@ class VolumeButtonListener {
   }
 
   Future<void> _ensureVolumeAwayFromBoundsIfNeeded() async {
-    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    final needsBoundsCheck = defaultTargetPlatform == TargetPlatform.iOS ||
+        (defaultTargetPlatform == TargetPlatform.android &&
+            _androidListeningMode == AndroidListeningMode.volumeEvents);
+    if (!needsBoundsCheck) return;
     try {
       final volume = await getVolume();
-      if (volume == 0) {
+      if (volume <= 0.05) {
         await setVolume(0.1);
-      } else if (volume == 1) {
+      } else if (volume >= 0.95) {
         await setVolume(0.9);
       }
     } catch (e) {
