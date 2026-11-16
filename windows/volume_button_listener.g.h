@@ -89,6 +89,7 @@ class VolumeButtonListenerPlatformChannel {
   virtual ErrorOr<bool> IsListening() = 0;
   virtual ErrorOr<double> GetVolume() = 0;
   virtual std::optional<FlutterError> SetVolume(double volume) = 0;
+  virtual std::optional<FlutterError> SetAndroidListeningMode(bool use_volume_events) = 0;
 
   // The codec used by VolumeButtonListenerPlatformChannel.
   static const flutter::StandardMessageCodec& GetCodec();

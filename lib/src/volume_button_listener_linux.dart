@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
-import 'package:volume_button_listener/src/volume_button_direction.dart';
 import 'package:volume_button_listener/src/volume_button_listener_interface.dart';
+import 'package:volume_button_listener/src/volume_change_monitor.dart';
 
 /// Linux implementation of [VolumeButtonListenerInterface].
 ///
@@ -28,9 +28,10 @@ class VolumeButtonListenerLinux with VolumeButtonListenerInterface {
   // Matches the default step used by flutter_volume_controller on Linux.
   static const double _systemVolumeStep = 0.15;
 
-  late final _VolumeChangeMonitor _monitor = _VolumeChangeMonitor(
+  late final VolumeChangeMonitor _monitor = VolumeChangeMonitor(
     onPressed: notifyVolumeButtonPressed,
     onReleased: notifyVolumeButtonReleased,
+    releaseDelay: const Duration(milliseconds: 80),
   );
 
   VolumeButtonBackend _backend = VolumeButtonBackend.none;
@@ -121,80 +122,5 @@ class VolumeButtonListenerLinux with VolumeButtonListenerInterface {
     // button press while observing system volume changes.
     _monitor.ignoreChangesFor(const Duration(milliseconds: 250));
     await FlutterVolumeController.setVolume(volume);
-  }
-}
-
-/// Observes system volume changes and infers volume button presses from the
-/// direction of each change. Used as a best-effort fallback when no capture
-/// backend is available. The system still handles the key, so the volume UI
-/// cannot be suppressed and no event is produced at the volume limits.
-class _VolumeChangeMonitor {
-  _VolumeChangeMonitor({required this.onPressed, required this.onReleased});
-
-  final void Function(bool isVolumeUp) onPressed;
-  final void Function(bool isVolumeUp) onReleased;
-
-  // Changes smaller than this are ignored, since the audio stack can report
-  // tiny rounding differences.
-  static const double _changeThreshold = 0.005;
-  static const Duration _releaseDelay = Duration(milliseconds: 80);
-
-  StreamSubscription<double>? _subscription;
-  double? _lastVolume;
-  VolumeButtonDirection? _pendingDirection;
-  Timer? _releaseTimer;
-  bool _ignoreChanges = false;
-  Timer? _ignoreTimer;
-
-  void start() {
-    if (_subscription != null) return;
-    _lastVolume = null;
-    _subscription = FlutterVolumeController.addListener(
-      _onVolumeChanged,
-      emitOnStart: true,
-    );
-  }
-
-  void stop() {
-    _releaseTimer?.cancel();
-    _releaseTimer = null;
-    _ignoreTimer?.cancel();
-    _ignoreTimer = null;
-    _ignoreChanges = false;
-    _pendingDirection = null;
-    _lastVolume = null;
-    _subscription?.cancel();
-    _subscription = null;
-  }
-
-  void ignoreChangesFor(Duration duration) {
-    _ignoreChanges = true;
-    _ignoreTimer?.cancel();
-    _ignoreTimer = Timer(duration, () => _ignoreChanges = false);
-  }
-
-  void _onVolumeChanged(double volume) {
-    final previous = _lastVolume;
-    _lastVolume = volume;
-    if (previous == null || _ignoreChanges) return;
-    if ((volume - previous).abs() < _changeThreshold) return;
-
-    final direction = volume > previous
-        ? VolumeButtonDirection.up
-        : VolumeButtonDirection.down;
-
-    if (_pendingDirection != direction) {
-      final pending = _pendingDirection;
-      if (pending != null) onReleased(pending == VolumeButtonDirection.up);
-      _pendingDirection = direction;
-      onPressed(direction == VolumeButtonDirection.up);
-    }
-
-    _releaseTimer?.cancel();
-    _releaseTimer = Timer(_releaseDelay, () {
-      final pending = _pendingDirection;
-      _pendingDirection = null;
-      if (pending != null) onReleased(pending == VolumeButtonDirection.up);
-    });
   }
 }

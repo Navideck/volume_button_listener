@@ -132,6 +132,8 @@ class VolumeButtonHandler: VolumeButtonListenerPlatformChannel {
     Self.setSystemVolume(Float(min(1, max(0, volume))))
   }
 
+  func setAndroidListeningMode(useVolumeEvents: Bool) throws {}
+
   private static func getSystemVolume() -> Float32 {
     let deviceID = getDefaultOutputDevice()
     return getVolume(deviceID: deviceID) ?? 0

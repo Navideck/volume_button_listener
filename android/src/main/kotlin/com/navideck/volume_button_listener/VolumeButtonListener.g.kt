@@ -71,6 +71,7 @@ interface VolumeButtonListenerPlatformChannel {
   fun isListening(): Boolean
   fun getVolume(): Double
   fun setVolume(volume: Double)
+  fun setAndroidListeningMode(useVolumeEvents: Boolean)
 
   companion object {
     /** The codec used by VolumeButtonListenerPlatformChannel. */
@@ -169,6 +170,24 @@ interface VolumeButtonListenerPlatformChannel {
             val volumeArg = args[0] as Double
             val wrapped: List<Any?> = try {
               api.setVolume(volumeArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              VolumeButtonListenerPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.volume_button_listener.VolumeButtonListenerPlatformChannel.setAndroidListeningMode$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val useVolumeEventsArg = args[0] as Boolean
+            val wrapped: List<Any?> = try {
+              api.setAndroidListeningMode(useVolumeEventsArg)
               listOf(null)
             } catch (exception: Throwable) {
               VolumeButtonListenerPigeonUtils.wrapError(exception)

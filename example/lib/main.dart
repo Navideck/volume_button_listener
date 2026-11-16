@@ -39,6 +39,9 @@ class _MyAppState extends State<MyApp> {
   int _longPressMs = 500;
   int _multiPressWindowMs = 300;
 
+  AndroidListeningMode _androidListeningMode =
+      AndroidListeningMode.volumeEvents;
+
   LinuxVolumeButtonSetupStatus _captureSetupStatus =
       LinuxVolumeButtonSetupStatus.notApplicable;
   bool _settingUpCapture = false;
@@ -46,6 +49,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    VolumeButtonListener.instance.androidListeningMode = _androidListeningMode;
     VolumeButtonListener.instance.longPressDuration = Duration(
       milliseconds: _longPressMs,
     );
@@ -175,10 +179,7 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  void _buttonMultiPressedCallback(
-    VolumeButtonDirection direction,
-    int count,
-  ) {
+  void _buttonMultiPressedCallback(VolumeButtonDirection direction, int count) {
     final entry = _LogEntry.buttonMultiPressed(direction, count);
     setState(() {
       _lastVolumeEvent = entry;
@@ -404,8 +405,8 @@ class _MyAppState extends State<MyApp> {
                       : () async {
                           setState(() => _isFetchingVolume = true);
                           try {
-                            final volume =
-                                await VolumeButtonListener.instance.getVolume();
+                            final volume = await VolumeButtonListener.instance
+                                .getVolume();
                             if (mounted) {
                               setState(() {
                                 _currentVolume = volume;
@@ -563,22 +564,78 @@ class _MyAppState extends State<MyApp> {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
-                onPressed: () => VolumeButtonListener
-                    .instance.suppressRepeatedPressEvents = true,
+                onPressed: () =>
+                    VolumeButtonListener.instance.suppressRepeatedPressEvents =
+                        true,
                 icon: const Icon(Icons.repeat_one_rounded),
                 label: const Text('Suppress Repeated Press Events'),
               ),
               OutlinedButton.icon(
-                onPressed: () => VolumeButtonListener
-                    .instance.suppressRepeatedPressEvents = false,
+                onPressed: () =>
+                    VolumeButtonListener.instance.suppressRepeatedPressEvents =
+                        false,
                 icon: const Icon(Icons.repeat_one_rounded),
                 label: const Text('Allow Repeated Press Events'),
               ),
             ],
           ),
         ),
-        if (_captureSetupStatus ==
-            LinuxVolumeButtonSetupStatus.needsSetup) ...[
+        if (Theme.of(context).platform == TargetPlatform.android) ...[
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Android Listening Mode',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Use "Key Events" on standard devices with activity focus. '
+                  'Use "Volume Events" on Meta Quest (Horizon OS) or Android XR '
+                  'where hardware volume key events are consumed by the OS.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SegmentedButton<AndroidListeningMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: AndroidListeningMode.keyEvents,
+                      label: Text('Key Events'),
+                      icon: Icon(Icons.keyboard_outlined),
+                    ),
+                    ButtonSegment(
+                      value: AndroidListeningMode.volumeEvents,
+                      label: Text('Volume Events (Quest)'),
+                      icon: Icon(Icons.graphic_eq),
+                    ),
+                  ],
+                  selected: {_androidListeningMode},
+                  onSelectionChanged: (selected) async {
+                    final mode = selected.first;
+                    setState(() => _androidListeningMode = mode);
+                    VolumeButtonListener.instance.androidListeningMode = mode;
+                    addOtherLog(
+                      'Switched Android listening mode to ${mode.name}',
+                    );
+                    await Future<void>.delayed(
+                      const Duration(milliseconds: 100),
+                    );
+                    await _refreshListeningState();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (_captureSetupStatus == LinuxVolumeButtonSetupStatus.needsSetup) ...[
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -715,4 +772,3 @@ class _MyAppState extends State<MyApp> {
     );
   }
 }
-
