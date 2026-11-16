@@ -201,15 +201,14 @@ class VolumeButtonListener {
   }
 
   Future<void> _ensureVolumeAwayFromBoundsIfNeeded() async {
-    final needsBoundsCheck = defaultTargetPlatform == TargetPlatform.iOS ||
-        (defaultTargetPlatform == TargetPlatform.android &&
-            _androidListeningMode == AndroidListeningMode.volumeEvents);
-    if (!needsBoundsCheck) return;
+    // Android's volumeEvents mode does this in VolumeButtonKit, right before it
+    // starts observing, so it is not duplicated here.
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
     try {
       final volume = await getVolume();
-      if (volume <= 0.05) {
+      if (volume == 0) {
         await setVolume(0.1);
-      } else if (volume >= 0.95) {
+      } else if (volume == 1) {
         await setVolume(0.9);
       }
     } catch (e) {

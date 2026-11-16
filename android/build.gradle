@@ -46,6 +46,9 @@ android {
     }
 
     testOptions {
+        // VolumeButtonKit calls framework statics that cannot be mocked from a
+        // JVM test (Log, SystemClock.uptimeMillis, Build.VERSION). Without this
+        // every one of those calls throws "Stub!".
         unitTests.returnDefaultValues = true
         unitTests.all {
             useJUnitPlatform()

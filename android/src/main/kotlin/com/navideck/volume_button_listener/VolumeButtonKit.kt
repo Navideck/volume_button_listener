@@ -22,6 +22,8 @@ public enum class VolumeButtonDirection {
 public class VolumeButtonListener(
     private val context: Context,
     handler: Handler? = null,
+    /** Returns the current uptime in milliseconds. Injectable so tests can control the ignore window. */
+    private val nowMillis: () -> Long = { SystemClock.uptimeMillis() },
 ) {
     public var volumeButtonPressed: ((VolumeButtonDirection) -> Unit)? = null
     public var volumeButtonReleased: ((VolumeButtonDirection) -> Unit)? = null
@@ -159,8 +161,10 @@ public class VolumeButtonListener(
                 if (intent?.action == VOLUME_CHANGED_ACTION) {
                     val streamType = intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1)
                     if (streamType == -1 || streamType == AudioManager.STREAM_MUSIC) {
-                        val newVol = intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE, -1)
-                        handleVolumeChange("BroadcastReceiver(stream=$streamType, newVol=$newVol)", newVol)
+                        // Read the stream instead of trusting the intent extras: the
+                        // broadcast is not a protected broadcast, so the value it
+                        // carries is only useful after it matches the real volume.
+                        handleVolumeChange("BroadcastReceiver(stream=$streamType)")
                     }
                 }
             }
@@ -169,7 +173,10 @@ public class VolumeButtonListener(
         val filter = IntentFilter(VOLUME_CHANGED_ACTION)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+                // Not exported: only the system (and this app) should be able to
+                // deliver volume changes, otherwise any installed app could
+                // fabricate button events.
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
                 context.registerReceiver(receiver, filter)
             }
@@ -179,17 +186,18 @@ public class VolumeButtonListener(
         }
     }
 
-    private fun handleVolumeChange(source: String, reportedVolume: Int = -1) {
+    /**
+     * Infers a press/release from the current stream volume. Called by the
+     * content observer and the volume broadcast receiver; `internal` so the
+     * unit tests can drive it without a device.
+     */
+    internal fun handleVolumeChange(source: String) {
         if (!isListening || isPaused) return
         val am = audioManager ?: return
 
-        val currentVolume = if (reportedVolume >= 0) {
-            reportedVolume
-        } else {
-            am.getStreamVolume(AudioManager.STREAM_MUSIC)
-        }
+        val currentVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
 
-        val now = SystemClock.uptimeMillis()
+        val now = nowMillis()
         if (now < ignoreVolumeChangesUntil && currentVolume == baselineVolume) {
             lastObservedVolume = currentVolume
             Log.d(TAG, "Ignoring programmatic volume change from $source: vol=$currentVolume")
@@ -220,13 +228,10 @@ public class VolumeButtonListener(
 
         if (activeDirection == null) {
             activeDirection = direction
-            volumeButtonPressed?.invoke(direction)
-        } else {
-            // Consecutive step in the same direction (button held or rapid repeat):
-            // also emit press so repeat/iOS-style detectors or raw listeners know,
-            // or keep activeDirection held until inactivity window elapses.
-            volumeButtonPressed?.invoke(direction)
         }
+        // Emit a press for every step so held buttons and rapid repeats are
+        // visible to listeners; the inactivity timer decides when it releases.
+        volumeButtonPressed?.invoke(direction)
 
         releaseRunnable?.let { mainHandler.removeCallbacks(it) }
         val directionForRelease = direction
@@ -249,7 +254,7 @@ public class VolumeButtonListener(
     }
 
     private fun setSystemVolume(volumeIndex: Int) {
-        ignoreVolumeChangesUntil = SystemClock.uptimeMillis() + programmaticChangeIgnoreIntervalMs
+        ignoreVolumeChangesUntil = nowMillis() + programmaticChangeIgnoreIntervalMs
         try {
             audioManager?.setStreamVolume(
                 AudioManager.STREAM_MUSIC,
@@ -286,6 +291,5 @@ public class VolumeButtonListener(
         private const val TAG = "VolumeButtonKit"
         private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
         private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
-        private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
     }
 }

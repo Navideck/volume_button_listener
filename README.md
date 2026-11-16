@@ -95,7 +95,7 @@ Reading and setting system volume uses ALSA through `flutter_volume_controller` 
 
 ### Meta Quest (Horizon OS) caveat
 
-Meta Quest headsets run Horizon OS, which is built on Android. A Flutter app runs there as a regular Android app displayed in a resizable 2D panel. Because Horizon OS consumes hardware volume button key events at the system compositor level, set `androidListeningMode` to `AndroidListeningMode.volumeEvents` to capture button presses via system volume changes:
+Meta Quest headsets run Horizon OS, which is built on Android. A Flutter app runs there as a regular Android app displayed in a resizable 2D panel. Horizon OS treats the physical volume buttons as system input (they are also the universal fallback "click" for selection), so `KEYCODE_VOLUME_UP` / `KEYCODE_VOLUME_DOWN` key events cannot be relied on there. Use `AndroidListeningMode.volumeEvents`, which infers presses and releases from changes to the media stream:
 
 ```dart
 // Configure to use volume events (recommended on Meta Quest / Horizon OS):
@@ -105,10 +105,14 @@ VolumeButtonListener.instance.androidListeningMode =
 
 A few things behave differently from a standard phone:
 
-- **Use `AndroidListeningMode.volumeEvents` on Quest.** Horizon OS reserves physical volume buttons as a system-level input fallback and does not pass `KEYCODE_VOLUME_UP` / `KEYCODE_VOLUME_DOWN` key events to the application window. In `volumeEvents` mode, button presses and releases are inferred from system audio stream changes.
-- **`showVolumeUI = false` reverts volume.** When `showVolumeUI` is `false`, the plugin automatically reverts volume changes back to the previous level to prevent volume drift while listening.
-- **Volume read/write uses the app-and-media stream.** `getVolume` and `setVolume` map to `AudioManager.STREAM_MUSIC`, which Horizon OS exposes as **App & media volume** in the system volume mixer. Call volume is a separate stream and is not touched.
+- **`volumeEvents` observes the system media stream, not key events.** Presses and releases are inferred from stream changes, so they are best-effort: a press that the OS does not apply to the stream (or that lands exactly on the minimum or maximum) produces no event. `keyEvents` remains the default on Android; `volumeEvents` can be selected at runtime and takes effect immediately.
+- **Focus is required in `volumeEvents` mode.** Because the plugin observes the system stream rather than the window, it explicitly suspends monitoring while the panel does not have input focus (another panel, the universal menu, or a system dialog), and resumes when focus returns. This prevents the app from reporting, or reverting, volume changes made elsewhere. `isListening` keeps reporting `true` while suspended, since the listener is still active and will resume.
+- **Starting `volumeEvents` can move the volume by one step.** So that both directions stay detectable, beginning to observe at the minimum or maximum moves the media volume one step inward. The iOS backend does the same at the bounds.
+- **`showVolumeUI = false` reverts volume.** The default is `false`, matching the other platforms. In that case a detected press leaves the system volume unchanged overall: the stream change is reverted once the button is released, and the resulting overlay may still be shown by Horizon OS.
+- **Volume read/write uses the app-and-media stream.** `getVolume` and `setVolume` map to `AudioManager.STREAM_MUSIC`, which Horizon OS exposes as **App & media volume** in the system volume mixer. Call volume is a separate stream and is not touched. Calling `setVolume` while listening in `volumeEvents` mode is not reported as a button press and is not reverted.
 - **No extra permissions are required** for button events or for reading and setting the media volume.
+
+Both modes are exercised by unit tests but have not been verified on Quest hardware in this release; check real button delivery and overlay behaviour on a headset before depending on it.
 
 To make a Flutter app display properly as a Quest panel, declare the supported devices and a default window size in `android/app/src/main/AndroidManifest.xml`:
 

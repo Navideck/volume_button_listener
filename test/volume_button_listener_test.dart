@@ -560,23 +560,5 @@ void main() {
         expect(pressed, [true]);
       });
     });
-
-    test('Invokes shouldRevertVolume on volume change', () {
-      fakeAsync((async) {
-        bool revertChecked = false;
-        final monitor = VolumeChangeMonitor(
-          onPressed: (_) {},
-          onReleased: (_) {},
-          shouldRevertVolume: () {
-            revertChecked = true;
-            return false;
-          },
-        );
-
-        monitor.onVolumeChanged(0.5);
-        monitor.onVolumeChanged(0.6);
-        expect(revertChecked, isTrue);
-      });
-    });
   });
 }

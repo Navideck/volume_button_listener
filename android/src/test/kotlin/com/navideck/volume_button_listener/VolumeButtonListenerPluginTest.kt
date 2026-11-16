@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.database.ContentObserver
 import android.media.AudioManager
+import android.net.Uri
 import android.provider.Settings
 import android.view.Window
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -42,6 +43,7 @@ internal class VolumeButtonListenerPluginTest {
             `when`(window.callback).thenReturn(delegate)
             `when`(activity.getSystemService(Context.AUDIO_SERVICE)).thenReturn(audioManager)
             `when`(activity.contentResolver).thenReturn(contentResolver)
+            `when`(activity.hasWindowFocus()).thenReturn(true)
             `when`(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)).thenReturn(5)
             `when`(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)).thenReturn(15)
             Mockito.doAnswer { invocation ->
@@ -212,5 +214,101 @@ internal class VolumeButtonListenerPluginTest {
         plugin.stopListener()
         assertFalse(plugin.isListening())
         Mockito.verify(fixture.contentResolver).unregisterContentObserver(Mockito.any(ContentObserver::class.java))
+    }
+
+    @Test
+    fun volumeEvents_isSuspendedWhenThePanelLosesFocus() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.setAndroidListeningMode(true)
+        plugin.startListener()
+        Mockito.verify(fixture.contentResolver).registerContentObserver(
+            Mockito.eq(Settings.System.CONTENT_URI),
+            Mockito.eq(true),
+            Mockito.any(ContentObserver::class.java),
+        )
+
+        // Another panel or the universal menu takes focus: stop observing the
+        // system volume so this app does not report/revert other apps' changes.
+        fixture.focus(false)
+        Mockito.verify(fixture.contentResolver).unregisterContentObserver(Mockito.any(ContentObserver::class.java))
+        // The listener stays active (it resumes itself), so isListening keeps
+        // reporting true rather than looking dead to the Dart layer.
+        assertTrue(plugin.isListening())
+
+        // Focus returns: resume observing without the caller having to act.
+        fixture.focus(true)
+        Mockito.verify(fixture.contentResolver, Mockito.times(2)).registerContentObserver(
+            Mockito.eq(Settings.System.CONTENT_URI),
+            Mockito.eq(true),
+            Mockito.any(ContentObserver::class.java),
+        )
+    }
+
+    @Test
+    fun volumeEvents_defersObservingWhenStartedWithoutFocus() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        fixture.focus(false)
+        plugin.setAndroidListeningMode(true)
+        plugin.startListener()
+
+        Mockito.verify(fixture.contentResolver, Mockito.never()).registerContentObserver(
+            Mockito.any(Uri::class.java),
+            Mockito.anyBoolean(),
+            Mockito.any(ContentObserver::class.java),
+        )
+
+        // Still counts as active so a later stopListener() tears it down and a
+        // focus gain starts observing.
+        assertTrue(plugin.isListening())
+        fixture.focus(true)
+        Mockito.verify(fixture.contentResolver).registerContentObserver(
+            Mockito.eq(Settings.System.CONTENT_URI),
+            Mockito.eq(true),
+            Mockito.any(ContentObserver::class.java),
+        )
+    }
+
+    @Test
+    fun volumeEvents_stopWhileSuspendedDoesNotResumeOnFocusGain() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.setAndroidListeningMode(true)
+        plugin.startListener()
+        fixture.focus(false)
+
+        // The Dart side removes its last listener while the panel is unfocused.
+        plugin.stopListener()
+        assertFalse(plugin.isListening())
+
+        fixture.focus(true)
+
+        assertFalse(plugin.isListening())
+        // Only the initial start registered an observer; the stopped listener
+        // must not come back to life.
+        Mockito.verify(fixture.contentResolver, Mockito.times(1)).registerContentObserver(
+            Mockito.eq(Settings.System.CONTENT_URI),
+            Mockito.eq(true),
+            Mockito.any(ContentObserver::class.java),
+        )
+    }
+
+    @Test
+    fun volumeEvents_setVolumeGoesThroughTheKit() {
+        val fixture = Fixture()
+        val plugin = fixture.plugin()
+
+        plugin.setAndroidListeningMode(true)
+        plugin.startListener()
+        plugin.setVolume(0.5)
+
+        // 0.5 * max 15 -> index 7, written through the kit so it updates the
+        // baseline instead of looking like a physical button press.
+        Mockito.verify(fixture.audioManager)
+            .setStreamVolume(AudioManager.STREAM_MUSIC, 7, AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE)
     }
 }

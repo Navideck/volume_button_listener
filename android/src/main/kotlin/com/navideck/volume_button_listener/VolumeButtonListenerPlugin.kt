@@ -31,6 +31,12 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     private var useVolumeEvents: Boolean = false
     private var volumeButtonListener: VolumeButtonListener? = null
 
+    // Whether the activity window currently has input focus. `volumeEvents`
+    // mode observes the system audio stream, so it must be suspended while the
+    // panel is unfocused or it would report (and revert) volume changes made by
+    // other panels and the system.
+    private var windowHasFocus: Boolean = false
+
     // Set when the activity is detached while the listener was active, so it
     // can be re-installed on reattach. Without this the interceptor is torn
     // down and volume keys stop reaching the app for the rest of the session.
@@ -50,6 +56,10 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        // Tear down anything that outlives the engine. In volumeEvents mode the
+        // kit would otherwise keep observing (and reverting) system volume with
+        // no channel left to report to.
+        stopListener()
         VolumeButtonListenerPlatformChannel.setUp(binding.binaryMessenger, null)
         callbackChannel = null
         mainThreadHandler = null
@@ -72,12 +82,11 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     override fun startListener() {
         android.util.Log.d("VolumeButtonKit", "startListener() useVolumeEvents=$useVolumeEvents")
         if (useVolumeEvents) {
-            if (volumeButtonListener != null) {
-                stopListener()
-            }
             val ctx = applicationContext ?: activity
                 ?: throw Exception("Context is null. VolumeButtonListenerPlugin requires an application context or activity.")
-            val kitListener = VolumeButtonListener(ctx, mainThreadHandler).apply {
+            // Reuse an existing kit so repeated start calls keep the learned
+            // baseline instead of restarting from the current stream volume.
+            val kitListener = volumeButtonListener ?: VolumeButtonListener(ctx, mainThreadHandler).apply {
                 this.showsVolumeUi = this@VolumeButtonListenerPlugin.showVolumeUi
                 this.volumeButtonPressed = { direction ->
                     mainThreadHandler?.post {
@@ -89,9 +98,14 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
                         callbackChannel?.onVolumeButtonReleased(direction == VolumeButtonDirection.UP) {}
                     }
                 }
+            }.also { volumeButtonListener = it }
+
+            if (windowHasFocus) {
+                kitListener.resume()
+                kitListener.startListening()
+            } else {
+                kitListener.pause()
             }
-            volumeButtonListener = kitListener
-            kitListener.startListening()
             return
         }
 
@@ -180,7 +194,11 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
 
     override fun isListening(): Boolean {
         if (useVolumeEvents) {
-            return volumeButtonListener?.isListening() ?: false
+            // Report the listener as active while it is suspended on focus
+            // loss: reporting false would make the Dart layer treat it as dead
+            // and either restart it or, worse, never stop it when the last
+            // listener is removed while the panel is unfocused.
+            return volumeButtonListener != null
         }
         // The window callback is the only thing that actually receives key
         // events, so report listening only while the window still delegates to
@@ -193,6 +211,11 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun getVolume(): Double {
+        // In volumeEvents mode the kit is the source of truth: it tracks the
+        // neutral baseline the volume is reverted to.
+        if (useVolumeEvents) {
+            volumeButtonListener?.let { return it.getVolume() }
+        }
         val ctx = applicationContext ?: return 0.0
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return 0.0
         val current = am.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -202,6 +225,16 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
     }
 
     override fun setVolume(volume: Double) {
+        // Route through the kit in volumeEvents mode: it records the new
+        // baseline and ignores the resulting observer callback, so an
+        // app-initiated change is neither reported as a button press nor
+        // reverted as if it came from a physical button.
+        if (useVolumeEvents) {
+            volumeButtonListener?.let {
+                it.setVolume(volume)
+                return
+            }
+        }
         val ctx = applicationContext ?: return
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -233,12 +266,26 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         windowFocusListener?.let { old -> activityBinding?.removeOnWindowFocusChangedListener(old) }
         activity = binding.activity
         activityBinding = binding
+        windowHasFocus = binding.activity.hasWindowFocus()
         // Focus can move between surfaces or spaces without recreating the
         // activity (2D panels on Horizon OS and Android XR both do this) and
         // give `window.callback` back to the host. Re-install the interceptor
         // when focus returns so volume keys reach the app again.
         val focusListener = WindowFocusChangedListener { hasFocus ->
-            if (hasFocus) {
+            windowHasFocus = hasFocus
+            if (useVolumeEvents) {
+                // The kit observes the system audio stream rather than key
+                // events, so it has to be suspended explicitly while the panel
+                // is unfocused.
+                if (hasFocus) {
+                    volumeButtonListener?.let { kit ->
+                        kit.resume()
+                        kit.startListening()
+                    }
+                } else {
+                    volumeButtonListener?.pause()
+                }
+            } else if (hasFocus) {
                 restartListenerIfReplaced()
             }
         }
@@ -258,6 +305,7 @@ class VolumeButtonListenerPlugin : FlutterPlugin, VolumeButtonListenerPlatformCh
         }
         windowFocusListener = null
         activityBinding = null
+        windowHasFocus = false
         // Capture this for every detach, not just configuration changes: a
         // plain destroy/recreate of the host activity otherwise drops the
         // interceptor, so volume keys never reach the app again. Use the

@@ -13,14 +13,12 @@ class VolumeChangeMonitor {
     required this.onReleased,
     this.releaseDelay = const Duration(milliseconds: 100),
     this.changeThreshold = 0.005,
-    this.shouldRevertVolume,
   });
 
   final void Function(bool isVolumeUp) onPressed;
   final void Function(bool isVolumeUp) onReleased;
   final Duration releaseDelay;
   final double changeThreshold;
-  final bool Function()? shouldRevertVolume;
 
   StreamSubscription<double>? _subscription;
   double? _lastVolume;
@@ -28,8 +26,6 @@ class VolumeChangeMonitor {
   Timer? _releaseTimer;
   bool _ignoreChanges = false;
   Timer? _ignoreTimer;
-
-  bool get isRunning => _subscription != null;
 
   void start() {
     if (_subscription != null) return;
@@ -68,12 +64,6 @@ class VolumeChangeMonitor {
     final direction = volume > previous
         ? VolumeButtonDirection.up
         : VolumeButtonDirection.down;
-
-    if (shouldRevertVolume?.call() ?? false) {
-      ignoreChangesFor(const Duration(milliseconds: 250));
-      unawaited(FlutterVolumeController.setVolume(previous));
-      _lastVolume = previous;
-    }
 
     if (_pendingDirection != direction) {
       final pending = _pendingDirection;
