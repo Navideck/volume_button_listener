@@ -1,8 +1,8 @@
 flutter_launcher_icons:
-  image_path: "../assets/volume-button-listener-launcher-r1.png"
+  image_path: "assets/app_icon.png"
   android: true
   adaptive_icon_background: "#F5F7FA"
-  adaptive_icon_foreground: "../assets/volume-button-listener-icon-r1.png"
+  adaptive_icon_foreground: "assets/app_icon.png"
   adaptive_icon_foreground_inset: 16
   ios: true
   remove_alpha_ios: true

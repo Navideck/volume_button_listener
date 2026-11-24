@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:volume_button_listener/volume_button_listener.dart';
 
 part 'src/event_widgets.dart';
