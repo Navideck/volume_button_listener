@@ -2,6 +2,11 @@
 * Android: keep listening across activity recreation, and make `isListening`
   reflect whether the window still delegates to the plugin, so a replaced
   callback is re-installed instead of silently going dead.
+* iOS: fix double and triple volume button press detection so consecutive taps
+  within `multiPressWindow` are counted instead of being suppressed or
+  misclassified as a long press.
+* iOS: isolate CocoaPods' fetched `VolumeButtonKit.swift` copy from the Swift
+  Package Manager target sources and remove the duplicate vendored copy.
 
 ## 0.4.0
 * Double and triple press support via `addButtonMultiPressedListener`, with a
