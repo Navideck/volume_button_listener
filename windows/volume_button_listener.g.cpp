@@ -200,6 +200,34 @@ void VolumeButtonListenerPlatformChannel::SetUp(
       channel.SetMessageHandler(nullptr);
     }
   }
+  {
+    BasicMessageChannel<> channel(binary_messenger, "dev.flutter.pigeon.volume_button_listener.VolumeButtonListenerPlatformChannel.setAndroidListeningMode" + prepended_suffix, &GetCodec());
+    if (api != nullptr) {
+      channel.SetMessageHandler([api](const EncodableValue& message, const flutter::MessageReply<EncodableValue>& reply) {
+        try {
+          const auto& args = std::get<EncodableList>(message);
+          const auto& encodable_use_volume_events_arg = args.at(0);
+          if (encodable_use_volume_events_arg.IsNull()) {
+            reply(WrapError("use_volume_events_arg unexpectedly null."));
+            return;
+          }
+          const auto& use_volume_events_arg = std::get<bool>(encodable_use_volume_events_arg);
+          std::optional<FlutterError> output = api->SetAndroidListeningMode(use_volume_events_arg);
+          if (output.has_value()) {
+            reply(WrapError(output.value()));
+            return;
+          }
+          EncodableList wrapped;
+          wrapped.push_back(EncodableValue());
+          reply(EncodableValue(std::move(wrapped)));
+        } catch (const std::exception& exception) {
+          reply(WrapError(exception.what()));
+        }
+      });
+    } else {
+      channel.SetMessageHandler(nullptr);
+    }
+  }
 }
 
 EncodableValue VolumeButtonListenerPlatformChannel::WrapError(std::string_view error_message) {

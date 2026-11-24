@@ -50,6 +50,8 @@ public class VolumeButtonListenerPlugin: NSObject, FlutterPlugin, VolumeButtonLi
     listener.setVolume(volume)
   }
 
+  func setAndroidListeningMode(useVolumeEvents: Bool) throws {}
+
   private func attachCallbacks() {
     listener.volumeButtonPressed = { [weak self] button in
       self?.callbackChannel.onVolumeButtonPressed(isVolumeUp: button == .up) { _ in }

@@ -174,4 +174,9 @@ VolumeButtonListenerPlugin::SetVolume(double volume) {
   return std::nullopt;
 }
 
+std::optional<FlutterError>
+VolumeButtonListenerPlugin::SetAndroidListeningMode(bool use_volume_events) {
+  return std::nullopt;
+}
+
 } // namespace volume_button_listener

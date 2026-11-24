@@ -32,6 +32,7 @@ private:
   ErrorOr<bool> IsListening() override;
   ErrorOr<double> GetVolume() override;
   std::optional<FlutterError> SetVolume(double volume) override;
+  std::optional<FlutterError> SetAndroidListeningMode(bool use_volume_events) override;
 };
 
 } // namespace volume_button_listener
