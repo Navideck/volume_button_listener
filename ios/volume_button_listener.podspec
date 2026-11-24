@@ -13,7 +13,10 @@ A new Flutter plugin project.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'volume_button_listener/Sources/volume_button_listener/**/*.swift'
+  s.source_files = [
+    'volume_button_listener/Sources/volume_button_listener/**/*.swift',
+    'CocoaPodsSources/**/*.swift',
+  ]
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
   s.prepare_command = 'sh ./prepare-volume-button-kit.sh'

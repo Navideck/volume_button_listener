@@ -31,4 +31,4 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
-/ios/volume_button_listener/Sources/volume_button_listener/VolumeButtonKit.swift
+/ios/CocoaPodsSources/

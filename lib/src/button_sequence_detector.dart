@@ -39,6 +39,10 @@ class _ButtonState {
 /// This is split out of `VolumeButtonListenerInterface` so the sequencing rules
 /// are independent of notifiers, platform channels and Flutter bindings.
 class ButtonSequenceDetector {
+  static const int _maxMultiPressCount = 3;
+  static const int _iosLongPressBaseThreshold = 3;
+  static const int _iosTripleTapLongPressThreshold = _maxMultiPressCount + 1;
+
   ButtonSequenceDetector({
     required this.onPressed,
     required this.onReleased,
@@ -82,21 +86,15 @@ class ButtonSequenceDetector {
     }
 
     final state = isVolumeUp ? _upState : _downState;
-    final ios = isIOS();
 
-    if (hasLongPressListeners() && ios) {
-      state.pressCount++;
-      if (state.pressCount > 1) {
-        if (state.pressCount >= 3 && state.timer == null) {
-          _activateLongPress(state, direction);
-        }
-        return;
-      }
-    } else if (shouldSuppress) {
+    if (isIOS()) {
+      _handleIOSPress(state, direction);
       return;
     }
 
-    _handlePressDown(state, direction, ios: ios);
+    if (shouldSuppress) return;
+
+    _handlePressDown(state, direction);
   }
 
   void release(bool isVolumeUp) {
@@ -147,39 +145,104 @@ class ButtonSequenceDetector {
     _previousEvent = null;
   }
 
-  void _handlePressDown(
-    _ButtonState state,
-    VolumeButtonDirection direction, {
-    required bool ios,
-  }) {
-    if (hasMultiPressListeners() && state.multiPressCount >= 3) {
+  void _handleIOSPress(_ButtonState state, VolumeButtonDirection direction) {
+    final longPress = hasLongPressListeners();
+    final multiPress = hasMultiPressListeners();
+
+    if (longPress) {
+      state.pressCount++;
+    }
+
+    if (state.isLongPressActive) return;
+
+    if (longPress && state.pressCount == 1) {
+      _startLongPressTimer(state, direction, ios: true);
+    }
+
+    // On iOS, VolumeButtonKit only synthesizes a release after an inactivity
+    // window, so consecutive taps arrive as consecutive press events without
+    // an intervening release.
+    final isWithinMultiPressSequence =
+        multiPress && (state.multiPressCount == 0 || !state.isWindowElapsed);
+
+    if (isWithinMultiPressSequence &&
+        state.multiPressCount < _maxMultiPressCount) {
+      _recordMultiPressTap(state, direction);
+      return;
+    }
+
+    if (longPress) {
+      if (state.pressCount >= _iosLongPressThreshold(state) &&
+          state.timer == null) {
+        _activateLongPress(state, direction);
+      }
+      return;
+    }
+
+    // Multi-press only: if the previous multi-press window already closed
+    // before iOS synthesized a release, finalize it and begin a new sequence.
+    if (multiPress && state.isWindowElapsed) {
+      _finalizeSequence(state, direction);
+      _recordMultiPressTap(state, direction);
+    }
+  }
+
+  void _handlePressDown(_ButtonState state, VolumeButtonDirection direction) {
+    if (hasMultiPressListeners() &&
+        state.multiPressCount >= _maxMultiPressCount) {
       // Extra presses beyond a triple are ignored until the window resets.
       return;
     }
 
     if (hasMultiPressListeners()) {
-      state.multiPressCount++;
-      state.isReleased = false;
-      state.isWindowElapsed = false;
-      state.multiPressTimer?.cancel();
-      state.multiPressTimer = Timer(
-        multiPressWindow(),
-        () => _onMultiPressWindowElapsed(state, direction),
-      );
+      _recordMultiPressTap(state, direction);
     }
 
     if (hasLongPressListeners()) {
-      state.timer?.cancel();
-      state.isLongPressActive = false;
-      state.timer = Timer(longPressDuration(), () {
-        if (state.pressCount < 3 && ios) {
-          state.timer = null;
-          return;
-        }
-        state.timer = null;
-        _activateLongPress(state, direction);
-      });
+      _startLongPressTimer(state, direction, ios: false);
     }
+  }
+
+  void _recordMultiPressTap(
+    _ButtonState state,
+    VolumeButtonDirection direction,
+  ) {
+    state.multiPressCount++;
+    state.isReleased = false;
+    state.isWindowElapsed = false;
+    state.multiPressTimer?.cancel();
+    state.multiPressTimer = Timer(
+      multiPressWindow(),
+      () => _onMultiPressWindowElapsed(state, direction),
+    );
+  }
+
+  void _startLongPressTimer(
+    _ButtonState state,
+    VolumeButtonDirection direction, {
+    required bool ios,
+  }) {
+    state.timer?.cancel();
+    state.isLongPressActive = false;
+    state.timer = Timer(longPressDuration(), () {
+      if (ios && state.pressCount < _iosLongPressThreshold(state)) {
+        state.timer = null;
+        return;
+      }
+      state.timer = null;
+      _activateLongPress(state, direction);
+    });
+  }
+
+  int _iosLongPressThreshold(_ButtonState state) {
+    // Without multi-press (or with fewer than 3 taps in the current window),
+    // 3 press notifications indicate sustained OS key-repeat (a long press).
+    // When 3 taps have already been counted in the multi-press window, require
+    // a 4th notification so a triple tap is not misclassified as a long press.
+    return hasMultiPressListeners() &&
+            state.multiPressCount >= _maxMultiPressCount
+        ? _iosTripleTapLongPressThreshold
+        : _iosLongPressBaseThreshold;
   }
 
   void _onMultiPressWindowElapsed(

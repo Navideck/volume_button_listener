@@ -403,4 +403,203 @@ void main() {
       });
     });
   });
+
+  group('VolumeButtonListenerInterface iOS Multi Press Tests', () {
+    late TestVolumeButtonListener listener;
+    late List<VolumeButtonDirection> pressedEvents;
+    late List<VolumeButtonDirection> releasedEvents;
+    late List<VolumeButtonDirection> longPressedEvents;
+    late List<VolumeButtonDirection> longPressReleasedEvents;
+    late List<(VolumeButtonDirection, int)> multiPressedEvents;
+
+    setUp(() {
+      listener = TestVolumeButtonListener();
+      listener.setSuppressRepeatedPressEvents(true);
+      listener.longPressDuration = const Duration(milliseconds: 500);
+      listener.multiPressWindow = const Duration(milliseconds: 300);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+      pressedEvents = [];
+      releasedEvents = [];
+      longPressedEvents = [];
+      longPressReleasedEvents = [];
+      multiPressedEvents = [];
+
+      listener.buttonPressedNotifier.addListener(pressedEvents.add);
+      listener.buttonReleasedNotifier.addListener(releasedEvents.add);
+      listener.buttonLongPressedNotifier.addListener(longPressedEvents.add);
+      listener.buttonLongPressReleasedNotifier.addListener(
+        longPressReleasedEvents.add,
+      );
+      listener.buttonMultiPressedNotifier.addListener(
+        (direction, count) => multiPressedEvents.add((direction, count)),
+      );
+    });
+
+    tearDown(() {
+      listener.cancelLongPressTimers();
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('Detects single tap on iOS with multi-press and long-press listeners', () {
+      fakeAsync((async) {
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(multiPressedEvents, isEmpty);
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, [VolumeButtonDirection.up]);
+        expect(releasedEvents, [VolumeButtonDirection.up]);
+      });
+    });
+
+    test('Detects double tap on iOS without intervening release', () {
+      fakeAsync((async) {
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 180));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.up, 2)]);
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Detects triple tap on iOS without triggering long press', () {
+      fakeAsync((async) {
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 180));
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 180));
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(false);
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.down, 3)]);
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Detects triple tap on iOS even when third tap arrives after longPressDuration', () {
+      fakeAsync((async) {
+        listener.longPressDuration = const Duration(milliseconds: 300);
+
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 200));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(multiPressedEvents, [(VolumeButtonDirection.up, 3)]);
+        expect(longPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Detects sustained long press on iOS when multi-press listener is also registered', () {
+      fakeAsync((async) {
+        // Press 1, then OS initial repeat delay (~500ms > multiPressWindow 300ms),
+        // then rapid OS repeats (~100ms apart).
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 500));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 100));
+        listener.notifyVolumeButtonPressed(true);
+
+        expect(longPressedEvents, [VolumeButtonDirection.up]);
+        expect(multiPressedEvents, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(longPressReleasedEvents, [VolumeButtonDirection.up]);
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Detects sustained long press on iOS even with wide multiPressWindow', () {
+      fakeAsync((async) {
+        listener.multiPressWindow = const Duration(milliseconds: 500);
+
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 480));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 100));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 100));
+        listener.notifyVolumeButtonPressed(true);
+
+        expect(longPressedEvents, [VolumeButtonDirection.up]);
+        expect(multiPressedEvents, isEmpty);
+
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(longPressReleasedEvents, [VolumeButtonDirection.up]);
+        expect(multiPressedEvents, isEmpty);
+      });
+    });
+
+    test('Detects double and triple tap on iOS without long-press listeners', () {
+      fakeAsync((async) {
+        listener.buttonLongPressedNotifier.removeListener(longPressedEvents.add);
+        listener.buttonLongPressReleasedNotifier.removeListener(
+          longPressReleasedEvents.add,
+        );
+
+        // Double tap
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        // Triple tap
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 150));
+        listener.notifyVolumeButtonPressed(false);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(false);
+
+        expect(multiPressedEvents, [
+          (VolumeButtonDirection.up, 2),
+          (VolumeButtonDirection.down, 3),
+        ]);
+        expect(pressedEvents, isEmpty);
+        expect(releasedEvents, isEmpty);
+      });
+    });
+
+    test('Separates slow iOS taps into single presses when multi-press only', () {
+      fakeAsync((async) {
+        listener.buttonLongPressedNotifier.removeListener(longPressedEvents.add);
+        listener.buttonLongPressReleasedNotifier.removeListener(
+          longPressReleasedEvents.add,
+        );
+
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 400));
+        listener.notifyVolumeButtonPressed(true);
+        async.elapse(const Duration(milliseconds: 750));
+        listener.notifyVolumeButtonReleased(true);
+
+        expect(multiPressedEvents, isEmpty);
+        expect(pressedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.up]);
+        expect(releasedEvents, [VolumeButtonDirection.up, VolumeButtonDirection.up]);
+      });
+    });
+  });
 }
